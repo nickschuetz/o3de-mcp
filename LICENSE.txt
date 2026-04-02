@@ -1,0 +1,10 @@
+Copyright (c) Contributors to the Open 3D Engine Project.
+For complete copyright and license terms please see the LICENSE at the root of this distribution.
+
+The default license for o3de-mcp is the Apache License, Version 2.0
+(see LICENSE-APACHE2.txt); you may elect at your option to use o3de-mcp
+under the MIT License (see LICENSE-MIT.txt).
+
+Contributions must be made under both licenses.
+
+SPDX-License-Identifier: Apache-2.0 OR MIT

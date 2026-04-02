@@ -1,0 +1,68 @@
+[project]
+name = "o3de-mcp"
+version = "0.1.0"
+description = "MCP server for Open 3D Engine (O3DE) — editor automation and project management"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0 OR MIT"
+authors = [
+    { name = "Nicholas Schuetz" },
+]
+keywords = ["o3de", "mcp", "game-engine", "editor-automation", "open-3d-engine"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "mcp[cli]>=1.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/nickschuetz/o3de-mcp"
+Documentation = "https://github.com/nickschuetz/o3de-mcp#readme"
+Issues = "https://github.com/nickschuetz/o3de-mcp/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "mypy>=1.0",
+    "pre-commit>=3.0",
+    "cyclonedx-bom>=7.0",
+]
+
+[project.scripts]
+o3de-mcp = "o3de_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/o3de_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
