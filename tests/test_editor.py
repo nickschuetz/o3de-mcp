@@ -8,6 +8,7 @@
 import asyncio
 import base64
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -246,3 +247,67 @@ class TestAsyncRunEditorScript:
 
         result = asyncio.run(run())
         assert result == "hello"
+
+
+# --- Fast-fail tests ---
+
+
+class TestEditorConnectionPoolFastFail:
+    def test_fast_fail_after_connection_failure(self) -> None:
+        """After a connection failure, subsequent calls within the window fail immediately."""
+        pool = _EditorConnectionPool()
+
+        # First call — real connection failure
+        result1 = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19993))
+        parsed1 = json.loads(result1)
+        assert parsed1["status"] == "error"
+
+        # Second call — should fast-fail (different error code)
+        result2 = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19993))
+        parsed2 = json.loads(result2)
+        assert parsed2["status"] == "error"
+        assert parsed2["code"] == "editor_unavailable"
+        assert "get_capabilities()" in parsed2["message"]
+
+    def test_fast_fail_expires(self) -> None:
+        """After the fast-fail window expires, the pool re-attempts connection."""
+        pool = _EditorConnectionPool()
+
+        # Trigger a failure
+        asyncio.run(pool.send_command("test", host="127.0.0.1", port=19992))
+
+        # Manually expire the window
+        pool._last_failure_time = time.monotonic() - pool._FAST_FAIL_WINDOW - 1.0
+
+        # Next call should attempt a real connection (not fast-fail)
+        result = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19992))
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        # Should be a real connection error, not the fast-fail code
+        assert parsed["code"] == "connection_refused"
+
+    def test_fast_fail_resets_on_success(self) -> None:
+        """Successful connection resets the fast-fail timer."""
+        pool = _EditorConnectionPool()
+
+        mock_reader = AsyncMock()
+        mock_reader.read = AsyncMock(return_value=b"ok\n")
+        mock_writer = MagicMock()
+        mock_writer.write = MagicMock()
+        mock_writer.drain = AsyncMock()
+        mock_writer.is_closing = MagicMock(return_value=False)
+        mock_writer.close = MagicMock()
+        mock_writer.wait_closed = AsyncMock()
+
+        # Set a recent failure time
+        pool._last_failure_time = time.monotonic()
+
+        async def run() -> None:
+            with patch("asyncio.open_connection", return_value=(mock_reader, mock_writer)):
+                # Manually clear the fast-fail to allow the connection attempt
+                pool._last_failure_time = None
+                await pool.send_command("cmd", host="127.0.0.1", port=19991)
+                # After success, failure time should be cleared
+                assert pool._last_failure_time is None
+
+        asyncio.run(run())

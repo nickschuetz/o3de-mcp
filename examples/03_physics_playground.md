@@ -6,6 +6,10 @@ Add dynamic physics objects to a scene — crates, balls, and trigger zones.
 
 - Scene from [Example 2](02_build_scene.md) or any level with a ground plane
 - PhysX gem enabled in the project
+- O3DE Editor running with RemoteConsole + EditorPythonBindings gems
+
+> **Editor required:** Call `get_capabilities()` first to verify editor
+> connectivity.
 
 ## Steps
 

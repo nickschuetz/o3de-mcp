@@ -4,9 +4,25 @@ Compact reference for all o3de-mcp tools. Optimized for agent consumption.
 
 ---
 
+## Capabilities Tools
+
+Always available — use these first to determine what other tools can be used.
+
+### get_capabilities
+
+Check what O3DE MCP capabilities are currently available. No parameters.
+Returns JSON with `editor`, `cli`, and `tool_categories` sections.
+
+> **Best practice:** Call this first in every session to avoid wasting tokens
+> on tools that will fail.
+
+---
+
 ## Editor Tools
 
 Require a running O3DE Editor with RemoteConsole + EditorPythonBindings gems.
+If the editor is unreachable, these tools will fast-fail with an
+`editor_unavailable` error within seconds rather than timing out.
 
 ### run_editor_python
 
@@ -178,6 +194,52 @@ Build a project with CMake.
 |-------|------|----------|-------------|
 | `project_path` | str | yes | Path to project (must exist) |
 | `config` | str | no | `debug`, `profile`, or `release` (default: `profile`) |
+
+### disable_gem
+
+Disable a gem in a project. Complement of `enable_gem`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `gem_name` | str | yes | Gem name |
+| `project_path` | str | yes | Path to project directory (must exist) |
+
+### create_gem
+
+Create a new O3DE gem from a template.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Gem name (alphanumeric, hyphens, underscores) |
+| `path` | str | yes | Directory for the gem |
+| `template` | str | no | Template name (default: `DefaultGem`) |
+
+### export_project
+
+Export a project for distribution. Long-running operation.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_path` | str | yes | Path to project (must exist) |
+| `output_path` | str | yes | Directory for exported output |
+| `config` | str | no | `debug`, `profile`, or `release` (default: `profile`) |
+
+Timeout configurable via `O3DE_EXPORT_TIMEOUT` env var (default: 3600s).
+
+### edit_project_properties
+
+Edit properties of an existing project.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_path` | str | yes | Path to project (must exist) |
+| `project_name` | str | no | New project name |
+| `origin` | str | no | New origin URL or description |
+
+### list_templates
+
+List available project and gem templates. No parameters.
+Returns JSON array of template objects with name, summary, and path.
 
 ---
 

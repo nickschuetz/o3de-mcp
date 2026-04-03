@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 from o3de_mcp.utils.o3de import (
     find_o3de_engine_path,
+    list_available_templates,
     list_registered_gems,
     list_registered_projects,
     run_o3de_cli,
@@ -38,6 +39,9 @@ _DEFAULT_CONFIGURE_TIMEOUT = 600
 
 # Default timeout for CMake build (seconds), overridable via env
 _DEFAULT_BUILD_TIMEOUT = 1800
+
+# Default timeout for project export (seconds), overridable via env
+_DEFAULT_EXPORT_TIMEOUT = 3600
 
 
 def _get_configure_timeout() -> int:
@@ -56,6 +60,15 @@ def _get_build_timeout() -> int:
         return int(raw) if raw else _DEFAULT_BUILD_TIMEOUT
     except ValueError:
         return _DEFAULT_BUILD_TIMEOUT
+
+
+def _get_export_timeout() -> int:
+    """Return project export timeout from env or default."""
+    raw = os.environ.get("O3DE_EXPORT_TIMEOUT", "")
+    try:
+        return int(raw) if raw else _DEFAULT_EXPORT_TIMEOUT
+    except ValueError:
+        return _DEFAULT_EXPORT_TIMEOUT
 
 
 def _get_cmake_generator() -> str | None:
@@ -304,3 +317,153 @@ def register_project_tools(mcp: FastMCP) -> None:
             return _format_error("build_failed", f"Build failed:\n{build.stderr}")
 
         return f"Project built successfully (config={config})"
+
+    @mcp.tool()
+    def disable_gem(gem_name: str, project_path: str) -> str:
+        """Disable a gem in an O3DE project.
+
+        Args:
+            gem_name: Name of the gem to disable.
+            project_path: Path to the project.
+        """
+        gem_name = _validate_name(gem_name, "gem name")
+        project = _validate_path(project_path, "Project path", must_exist=True)
+
+        result = run_o3de_cli(
+            [
+                "disable-gem",
+                "--gem-name",
+                gem_name,
+                "--project-path",
+                str(project),
+            ]
+        )
+        if result.returncode != 0:
+            return _format_error("disable_failed", f"Failed to disable gem:\n{result.stderr}")
+        return f"Gem '{gem_name}' disabled in project at '{project}'"
+
+    @mcp.tool()
+    def create_gem(name: str, path: str, template: str = "DefaultGem") -> str:
+        """Create a new O3DE gem.
+
+        Args:
+            name: Gem name (alphanumeric, hyphens, underscores).
+            path: Directory where the gem will be created.
+            template: Gem template to use (default: DefaultGem).
+        """
+        name = _validate_name(name, "gem name")
+        template = _validate_name(template, "template name")
+        gem_path = _validate_path(path, "Gem parent directory")
+
+        result = run_o3de_cli(
+            [
+                "create-gem",
+                "--gem-name",
+                name,
+                "--gem-path",
+                str(gem_path),
+                "--template-name",
+                template,
+            ]
+        )
+        if result.returncode != 0:
+            return _format_error("create_failed", f"Failed to create gem:\n{result.stderr}")
+        return f"Gem '{name}' created at {gem_path}"
+
+    @mcp.tool()
+    def export_project(project_path: str, output_path: str, config: str = "profile") -> str:
+        """Export an O3DE project for distribution.
+
+        This is a long-running operation. Timeout is configurable via
+        the ``O3DE_EXPORT_TIMEOUT`` environment variable (default: 3600s).
+
+        Args:
+            project_path: Path to the O3DE project to export.
+            output_path: Directory where the exported project will be written.
+            config: Build configuration — profile, debug, or release (default: profile).
+        """
+        config = config.lower().strip()
+        if config not in _VALID_BUILD_CONFIGS:
+            return _format_error(
+                "invalid_config",
+                f"Invalid build config: {config!r}. "
+                f"Must be one of: {', '.join(sorted(_VALID_BUILD_CONFIGS))}",
+            )
+
+        project = _validate_path(project_path, "Project path", must_exist=True)
+        output = _validate_path(output_path, "Output path")
+
+        try:
+            result = run_o3de_cli(
+                [
+                    "export-project",
+                    "--project-path",
+                    str(project),
+                    "--output-path",
+                    str(output),
+                    "--config",
+                    config,
+                ]
+            )
+        except subprocess.TimeoutExpired:
+            return _format_error(
+                "export_timeout",
+                f"Project export timed out after {_get_export_timeout()}s. "
+                "Increase O3DE_EXPORT_TIMEOUT if the project requires more time.",
+            )
+        if result.returncode != 0:
+            return _format_error("export_failed", f"Failed to export project:\n{result.stderr}")
+        return f"Project exported successfully to {output} (config={config})"
+
+    @mcp.tool()
+    def edit_project_properties(
+        project_path: str,
+        project_name: str | None = None,
+        origin: str | None = None,
+    ) -> str:
+        """Edit properties of an existing O3DE project.
+
+        Args:
+            project_path: Path to the project.
+            project_name: New name for the project (optional).
+            origin: New origin URL or description (optional).
+        """
+        project = _validate_path(project_path, "Project path", must_exist=True)
+
+        args: list[str] = ["edit-project-properties", "--project-path", str(project)]
+
+        if project_name is not None:
+            project_name = _validate_name(project_name, "project name")
+            args.extend(["--project-name", project_name])
+        if origin is not None:
+            args.extend(["--origin", origin])
+
+        if len(args) == 3:
+            return _format_error(
+                "no_changes",
+                "No properties specified to change. Provide at least one of: project_name, origin.",
+            )
+
+        result = run_o3de_cli(args)
+        if result.returncode != 0:
+            return _format_error(
+                "edit_failed", f"Failed to edit project properties:\n{result.stderr}"
+            )
+        return f"Project properties updated for '{project}'"
+
+    @mcp.tool()
+    def list_templates() -> str:
+        """List available O3DE project and gem templates.
+
+        Scans the engine's Templates directory for template definitions.
+
+        Returns:
+            JSON array of template objects with name, summary, and path.
+        """
+        templates = list_available_templates()
+        if not templates:
+            return _format_error(
+                "no_templates",
+                "No templates found. Ensure O3DE engine path is configured correctly.",
+            )
+        return json.dumps(templates, indent=2)

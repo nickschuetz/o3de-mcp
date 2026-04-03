@@ -7,6 +7,10 @@ ball must reach a goal zone while crates fall from above.
 
 - Scene with ground, camera, and lighting (from Examples 2-3)
 - PhysX and Lua Script gems enabled
+- O3DE Editor running with RemoteConsole + EditorPythonBindings gems
+
+> **Editor required:** Call `get_capabilities()` first to verify editor
+> connectivity.
 
 ## Steps
 

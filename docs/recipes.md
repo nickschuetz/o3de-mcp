@@ -8,6 +8,18 @@ workflows.
 
 ## Project Setup
 
+### Recipe: Capability-first workflow
+
+Always start by checking what's available:
+
+```
+1. get_capabilities()          → check editor + CLI status
+2. list_templates()            → see available project/gem templates
+```
+
+If the editor is unreachable, stick to project tools. If the CLI is also
+missing, set `O3DE_ENGINE_PATH` and try again.
+
 ### Recipe: New project from scratch
 
 > **Platform note:** Replace the example path with an appropriate absolute path
@@ -15,11 +27,13 @@ workflows.
 > `~/projects/MyGame` (macOS), or `C:\Users\YourName\projects\MyGame` (Windows).
 
 ```
-1. create_project(name="MyGame", path="<your_projects_dir>/MyGame")
-2. enable_gem(gem_name="PhysX", project_path="<your_projects_dir>/MyGame")
-3. enable_gem(gem_name="EditorPythonBindings", project_path="<your_projects_dir>/MyGame")
-4. enable_gem(gem_name="RemoteConsole", project_path="<your_projects_dir>/MyGame")
-5. build_project(project_path="<your_projects_dir>/MyGame", config="profile")
+1. get_capabilities()          → verify engine is found
+2. list_templates()            → discover templates
+3. create_project(name="MyGame", path="<your_projects_dir>/MyGame")
+4. enable_gem(gem_name="PhysX", project_path="<your_projects_dir>/MyGame")
+5. enable_gem(gem_name="EditorPythonBindings", project_path="<your_projects_dir>/MyGame")
+6. enable_gem(gem_name="RemoteConsole", project_path="<your_projects_dir>/MyGame")
+7. build_project(project_path="<your_projects_dir>/MyGame", config="profile")
 ```
 
 > Always enable `RemoteConsole` and `EditorPythonBindings` — they are required
@@ -28,9 +42,34 @@ workflows.
 ### Recipe: Verify environment
 
 ```
-1. get_engine_info()           → confirms engine is found
-2. list_projects()             → see registered projects
-3. list_gems()                 → see available gems
+1. get_capabilities()          → full status check
+2. get_engine_info()           → confirms engine is found
+3. list_projects()             → see registered projects
+4. list_gems()                 → see available gems
+```
+
+### Recipe: Create and register a custom gem
+
+```
+1. create_gem(name="MyGem", path="<your_gems_dir>/MyGem")
+2. register_gem(gem_path="<your_gems_dir>/MyGem", project_path="<project_path>")
+3. enable_gem(gem_name="MyGem", project_path="<project_path>")
+4. build_project(project_path="<project_path>")
+```
+
+### Recipe: Export project for distribution
+
+```
+1. build_project(project_path="<project_path>", config="release")
+2. export_project(project_path="<project_path>", output_path="<output_dir>", config="release")
+```
+
+### Recipe: Remove unwanted gems
+
+```
+1. list_gems()                 → see what's enabled
+2. disable_gem(gem_name="UnneededGem", project_path="<project_path>")
+3. build_project(project_path="<project_path>")
 ```
 
 ---

@@ -19,13 +19,17 @@ from o3de_mcp.tools.project import (
     _get_build_timeout,
     _get_cmake_generator,
     _get_configure_timeout,
+    _get_export_timeout,
     _validate_name,
     _validate_path,
 )
 from o3de_mcp.utils.o3de import (
     _ManifestCache,
+    find_all_engines,
     find_o3de_cli,
     find_o3de_engine_path,
+    find_o3de_engine_version,
+    list_available_templates,
     list_registered_gems,
     list_registered_projects,
     run_o3de_cli,
@@ -299,3 +303,163 @@ class TestBuildDirectorySymlink:
         # We can't easily call build_project without a real engine, but we can
         # verify the logic by checking the symlink detection directly
         assert build_link.is_symlink()
+
+
+# --- Export timeout tests ---
+
+
+class TestExportTimeout:
+    def test_default_export_timeout(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            assert _get_export_timeout() == 3600
+
+    def test_custom_export_timeout(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EXPORT_TIMEOUT": "7200"}):
+            assert _get_export_timeout() == 7200
+
+    def test_invalid_export_timeout_falls_back(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EXPORT_TIMEOUT": "bad"}):
+            assert _get_export_timeout() == 3600
+
+
+# --- Engine version tests ---
+
+
+class TestFindEngineVersion:
+    def test_returns_version(self, tmp_path: Path) -> None:
+        engine_json = tmp_path / "engine.json"
+        engine_json.write_text(json.dumps({"version": "24.09"}))
+
+        with patch("o3de_mcp.utils.o3de.find_o3de_engine_path", return_value=tmp_path):
+            assert find_o3de_engine_version() == "24.09"
+
+    def test_returns_none_without_engine(self) -> None:
+        with patch("o3de_mcp.utils.o3de.find_o3de_engine_path", return_value=None):
+            assert find_o3de_engine_version() is None
+
+    def test_returns_none_without_engine_json(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.find_o3de_engine_path", return_value=tmp_path):
+            assert find_o3de_engine_version() is None
+
+
+# --- Find all engines tests ---
+
+
+class TestFindAllEngines:
+    def test_returns_empty_without_manifest(self) -> None:
+        with patch("o3de_mcp.utils.o3de._o3de_manifest_path", return_value=None):
+            assert find_all_engines() == []
+
+    def test_returns_engines_with_metadata(self, tmp_path: Path) -> None:
+        engine_dir = tmp_path / "engine1"
+        engine_dir.mkdir()
+        engine_json = engine_dir / "engine.json"
+        engine_json.write_text(json.dumps({"engine_name": "o3de", "version": "24.09"}))
+
+        manifest = tmp_path / "o3de_manifest.json"
+        manifest.write_text(json.dumps({"engines": [str(engine_dir)]}))
+
+        with patch("o3de_mcp.utils.o3de._o3de_manifest_path", return_value=manifest):
+            engines = find_all_engines()
+            assert len(engines) == 1
+            assert engines[0]["engine_name"] == "o3de"
+            assert engines[0]["version"] == "24.09"
+
+
+# --- Template listing tests ---
+
+
+class TestListAvailableTemplates:
+    def test_returns_empty_without_engine(self) -> None:
+        with patch("o3de_mcp.utils.o3de.find_o3de_engine_path", return_value=None):
+            assert list_available_templates() == []
+
+    def test_reads_template_json(self, tmp_path: Path) -> None:
+        templates_dir = tmp_path / "Templates"
+        templates_dir.mkdir()
+        template = templates_dir / "DefaultProject"
+        template.mkdir()
+        template_json = template / "template.json"
+        template_json.write_text(
+            json.dumps(
+                {
+                    "template_name": "DefaultProject",
+                    "display_name": "Default Project",
+                    "summary": "A basic O3DE project template",
+                }
+            )
+        )
+
+        with patch("o3de_mcp.utils.o3de.find_o3de_engine_path", return_value=tmp_path):
+            templates = list_available_templates()
+            assert len(templates) == 1
+            assert templates[0]["template_name"] == "DefaultProject"
+            assert templates[0]["summary"] == "A basic O3DE project template"
+
+    def test_handles_missing_template_json(self, tmp_path: Path) -> None:
+        templates_dir = tmp_path / "Templates"
+        templates_dir.mkdir()
+        template = templates_dir / "CustomTemplate"
+        template.mkdir()
+
+        with patch("o3de_mcp.utils.o3de.find_o3de_engine_path", return_value=tmp_path):
+            templates = list_available_templates()
+            assert len(templates) == 1
+            assert templates[0]["template_name"] == "CustomTemplate"
+
+
+# --- Engine name selection tests ---
+
+
+class TestEngineNameSelection:
+    def test_selects_engine_by_name(self, tmp_path: Path) -> None:
+        engine1 = tmp_path / "engine1"
+        engine1.mkdir()
+        (engine1 / "engine.json").write_text(json.dumps({"engine_name": "o3de-stable"}))
+
+        engine2 = tmp_path / "engine2"
+        engine2.mkdir()
+        (engine2 / "engine.json").write_text(json.dumps({"engine_name": "o3de-dev"}))
+
+        manifest = tmp_path / "o3de_manifest.json"
+        manifest.write_text(json.dumps({"engines": [str(engine1), str(engine2)]}))
+
+        with patch.dict("os.environ", {"O3DE_ENGINE_NAME": "o3de-dev"}, clear=True):
+            with patch("o3de_mcp.utils.o3de._o3de_manifest_path", return_value=manifest):
+                result = find_o3de_engine_path()
+                assert result == engine2
+
+    def test_falls_back_to_first_valid_engine(self, tmp_path: Path) -> None:
+        engine1 = tmp_path / "engine1"
+        engine1.mkdir()
+        (engine1 / "engine.json").write_text(json.dumps({"engine_name": "o3de"}))
+
+        manifest = tmp_path / "o3de_manifest.json"
+        manifest.write_text(json.dumps({"engines": [str(engine1)]}))
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("o3de_mcp.utils.o3de._o3de_manifest_path", return_value=manifest):
+                result = find_o3de_engine_path()
+                assert result == engine1
+
+
+# --- CLI fallback to python/o3de.py tests ---
+
+
+class TestCliFallback:
+    def test_finds_python_o3de_fallback(self, tmp_path: Path) -> None:
+        python_dir = tmp_path / "python"
+        python_dir.mkdir()
+        fallback_script = python_dir / "o3de.py"
+        fallback_script.touch()
+
+        with patch("o3de_mcp.utils.o3de.find_o3de_engine_path", return_value=tmp_path):
+            with patch("o3de_mcp.utils.o3de.platform.system", return_value="Linux"):
+                # Clear the CLI cache
+                import o3de_mcp.utils.o3de as o3de_mod
+
+                o3de_mod._cached_cli = None
+                o3de_mod._cached_cli_engine = None
+
+                result = find_o3de_cli()
+                assert result == fallback_script

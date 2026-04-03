@@ -3,6 +3,9 @@
 Techniques for efficient bulk operations that minimize tool calls and token
 usage. Use these patterns when creating or modifying many entities at once.
 
+> **Editor required:** All batch operations use `run_editor_python`, which
+> requires a running editor. Call `get_capabilities()` first to verify.
+
 ## Batch Create Entities
 
 Instead of N `create_entity` calls, use one `run_editor_python`:

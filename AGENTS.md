@@ -6,6 +6,10 @@ Optimized for minimal token usage while maintaining accuracy.
 ## Quick Start Decision Tree
 
 ```
+First call in a session?         → get_capabilities() to check what's available
+CLI available but no editor?     → Project tools only (create, build, gems)
+Editor connected?                → Full tool access (entities, components, levels)
+
 Need to create/build a project?  → Project tools (no editor needed)
 Need to modify a level/scene?    → Editor tools (editor must be running)
 Creating 1-2 simple entities?    → Use create_entity + add_component
@@ -15,6 +19,10 @@ Setting many properties?         → Use run_editor_python
 Need to test gameplay?           → enter_game_mode / exit_game_mode
 Made a mistake?                  → undo / redo
 ```
+
+> **Important:** The RemoteConsole gem required for editor tools is not included
+> in official O3DE releases. Always call `get_capabilities()` first to determine
+> what is available. If the editor is unreachable, focus on project tools.
 
 ## Token Efficiency Rules
 
@@ -91,29 +99,47 @@ Environment     = HDRi Skybox + Global Skylight (IBL)
 Minimal sequence to go from nothing to a playable scene:
 
 ```
-1. create_project(name, path)
-2. enable_gem("RemoteConsole", path)         ← required for editor tools
-3. enable_gem("EditorPythonBindings", path)  ← required for editor tools
-4. enable_gem("PhysX", path)
-5. build_project(path)
+0. get_capabilities()                        ← check what's available
+1. list_templates()                          ← discover available templates
+2. create_project(name, path)
+3. enable_gem("RemoteConsole", path)         ← required for editor tools
+4. enable_gem("EditorPythonBindings", path)  ← required for editor tools
+5. enable_gem("PhysX", path)
+6. build_project(path)
    ── launch editor manually ──
-6. load_level("Levels/Main")
-7. run_editor_python(sky + light + ground + camera script)
-8. run_editor_python(game entities script)
+7. load_level("Levels/Main")
+8. run_editor_python(sky + light + ground + camera script)
+9. run_editor_python(game entities script)
 ```
 
-Steps 7-8 use batch scripts to create the entire scene in 2 calls.
+Steps 8-9 use batch scripts to create the entire scene in 2 calls.
+
+## Workflow: CLI-Only (No Editor)
+
+When the editor is not available, you can still manage projects and gems:
+
+```
+1. get_capabilities()                        ← confirms CLI available
+2. list_templates()                          ← see templates
+3. create_project(name, path)
+4. create_gem(name, gem_path)                ← create custom gems
+5. enable_gem(gem_name, project_path)
+6. build_project(project_path)
+7. export_project(project_path, output_path) ← package for distribution
+```
 
 ## Configuration
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `O3DE_ENGINE_PATH` | Auto-detect | Engine install path |
+| `O3DE_ENGINE_NAME` | (none) | Select engine by name when multiple registered |
 | `O3DE_EDITOR_HOST` | `127.0.0.1` | Editor remote console host |
 | `O3DE_EDITOR_PORT` | `4600` | Editor remote console port |
 | `O3DE_CMAKE_GENERATOR` | Auto-detect | CMake generator for builds |
 | `O3DE_CONFIGURE_TIMEOUT` | `600` | CMake configure timeout (seconds) |
 | `O3DE_BUILD_TIMEOUT` | `1800` | CMake build timeout (seconds) |
+| `O3DE_EXPORT_TIMEOUT` | `3600` | Project export timeout (seconds) |
 
 ## Security Constraints
 
@@ -134,6 +160,7 @@ Inputs are validated — these will be rejected:
 | "Invalid entity ID" | Non-numeric ID passed | Use numeric IDs from list_entities() |
 | "Component type not found" | Typo in component name or gem not enabled | Check [component catalog](docs/components.md) |
 | "O3DE CLI not found" | Engine not installed or O3DE_ENGINE_PATH not set | Run get_engine_info() to diagnose |
+| "editor_unavailable" | Editor unreachable (fast-fail) | Call get_capabilities(); editor tools need running editor |
 | "does not exist" | Path validation failed | Verify path exists on disk |
 
 ## Reference

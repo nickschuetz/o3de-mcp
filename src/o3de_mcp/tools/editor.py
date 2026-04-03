@@ -29,6 +29,7 @@ import os
 import re
 import socket
 import textwrap
+import time
 
 from mcp.server.fastmcp import FastMCP
 
@@ -251,7 +252,13 @@ class _EditorConnectionPool:
     Reuses a single connection across multiple tool calls to avoid TCP
     handshake overhead.  Automatically reconnects when the connection is
     lost or when host/port configuration changes.
+
+    Includes a fast-fail window: after a connection failure, subsequent
+    calls within ``_FAST_FAIL_WINDOW`` seconds return an error immediately
+    instead of re-attempting the TCP connection.
     """
+
+    _FAST_FAIL_WINDOW = 5.0  # seconds
 
     def __init__(self) -> None:
         self._reader: asyncio.StreamReader | None = None
@@ -259,6 +266,7 @@ class _EditorConnectionPool:
         self._host: str | None = None
         self._port: int | None = None
         self._lock = asyncio.Lock()
+        self._last_failure_time: float | None = None
 
     async def send_command(
         self,
@@ -272,11 +280,25 @@ class _EditorConnectionPool:
         port = port or _get_editor_port()
 
         async with self._lock:
+            # Fast-fail if we recently failed to connect
+            if self._last_failure_time is not None:
+                elapsed = time.monotonic() - self._last_failure_time
+                if elapsed < self._FAST_FAIL_WINDOW:
+                    return _format_error(
+                        "editor_unavailable",
+                        f"O3DE Editor is not reachable on {host}:{port}. "
+                        "Start the editor with RemoteConsole gem enabled, "
+                        "or call get_capabilities() to check status. "
+                        "This operation requires a running editor and "
+                        "cannot be performed via CLI.",
+                    )
+
             try:
                 reader, writer = await self._ensure_connected(host, port, timeout)
                 writer.write(command.encode("utf-8") + b"\n")
                 await writer.drain()
                 response = await _async_recv_all(reader, timeout)
+                self._last_failure_time = None  # Reset on success
                 return response.decode("utf-8", errors="replace").strip()
             except (
                 ConnectionRefusedError,
@@ -284,6 +306,7 @@ class _EditorConnectionPool:
                 asyncio.TimeoutError,
                 OSError,
             ) as exc:
+                self._last_failure_time = time.monotonic()
                 await self._close()
                 return _connection_error_response(exc, host, port, timeout)
 

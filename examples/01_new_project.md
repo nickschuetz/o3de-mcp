@@ -15,7 +15,27 @@ End-to-end walkthrough: from zero to a built project ready for the editor.
 
 ## Steps
 
-### 1. Verify the engine is available
+### 0. Check capabilities
+
+**Tool call:**
+```json
+{"tool": "get_capabilities"}
+```
+
+Verify that `cli.available` is `true`. This confirms the O3DE CLI is found
+and project tools are ready to use.
+
+### 1. Discover available templates
+
+**Tool call:**
+```json
+{"tool": "list_templates"}
+```
+
+This shows available project templates (e.g. `DefaultProject`, `MinimalProject`).
+Use the desired template name in step 2.
+
+### 2. Verify the engine is available
 
 **Tool call:**
 ```json
@@ -31,7 +51,7 @@ End-to-end walkthrough: from zero to a built project ready for the editor.
 }
 ```
 
-### 2. Create the project
+### 3. Create the project
 
 **Tool call:**
 ```json
@@ -49,7 +69,7 @@ End-to-end walkthrough: from zero to a built project ready for the editor.
 Project 'SpaceExplorer' created at <your_projects_dir>/SpaceExplorer
 ```
 
-### 3. Enable required gems
+### 4. Enable required gems
 
 The editor tools require RemoteConsole and EditorPythonBindings. Enable them
 along with any gameplay gems you need:
@@ -62,7 +82,7 @@ along with any gameplay gems you need:
 {"tool": "enable_gem", "arguments": {"gem_name": "Stars", "project_path": "<your_projects_dir>/SpaceExplorer"}}
 ```
 
-### 4. Build the project
+### 5. Build the project
 
 **Tool call:**
 ```json
@@ -80,7 +100,7 @@ along with any gameplay gems you need:
 Project built successfully (config=profile)
 ```
 
-### 5. Verify registration
+### 6. Verify registration
 
 **Tool call:**
 ```json
@@ -94,3 +114,5 @@ The response should include your new project in the list.
 Open the O3DE Editor for this project, then use the editor tools:
 - [Example 2: Build a Scene](02_build_scene.md)
 - [Example 3: Add Physics](03_physics_playground.md)
+- [Example 6: CLI-Only Workflow](06_cli_only_workflow.md) — if the editor isn't available
+- [Example 7: Gem Development](07_gem_development.md) — creating custom gems

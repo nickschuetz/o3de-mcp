@@ -8,6 +8,10 @@ static geometry — all through MCP tool calls.
 - O3DE Editor running with your project loaded
 - RemoteConsole and EditorPythonBindings gems active
 
+> **Editor required:** These tools need a running editor. Call
+> `get_capabilities()` first to verify the editor is connected. If it's
+> not available, see [Example 6](06_cli_only_workflow.md) for CLI-only options.
+
 ## Steps
 
 ### 1. Open the level

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
+from o3de_mcp.tools.capabilities import register_capabilities_tools
 from o3de_mcp.tools.editor import register_editor_tools
 from o3de_mcp.tools.project import register_project_tools
 
@@ -17,6 +18,7 @@ mcp = FastMCP(
     instructions="MCP server for Open 3D Engine — editor automation and project management",
 )
 
+register_capabilities_tools(mcp)
 register_editor_tools(mcp)
 register_project_tools(mcp)
 
