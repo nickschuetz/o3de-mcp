@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-03
+
+### Added
+
+- **Capability detection** (`get_capabilities` tool):
+  - Runtime probing of editor connectivity and CLI availability.
+  - Dynamic tool discovery from the FastMCP registry — unknown tools
+    appear in an `other_tools` category so new tools are never hidden.
+  - Returns structured JSON with editor status, CLI info, and per-category
+    tool availability.
+- **5 new project tools** (CLI-based, no editor required):
+  - `disable_gem` — complement to `enable_gem`.
+  - `create_gem` — create custom gems from templates.
+  - `export_project` — package projects for distribution.
+  - `edit_project_properties` — modify project metadata.
+  - `list_templates` — discover available project/gem templates.
+- **Enhanced engine discovery**:
+  - `O3DE_ENGINE_NAME` env var to select a specific engine when multiple
+    are registered.
+  - `python/o3de.py` fallback when `scripts/o3de.sh` is absent.
+  - CLI path caching to avoid repeated filesystem checks.
+  - `find_o3de_engine_version()`, `find_all_engines()`,
+    `list_available_templates()` utility functions.
+- **Editor fast-fail**: Connection pool skips re-probing for 5 seconds
+  after a failure, returning `editor_unavailable` immediately instead of
+  timing out repeatedly.
+- `O3DE_EXPORT_TIMEOUT` env var (default: 3600s) for long-running exports.
+- New examples: CLI-only workflow (`06`), gem development (`07`).
+- 37 new tests (93 total).
+
+### Changed
+
+- `get_capabilities` response now includes a `tools` list per category
+  with actual tool names, not just counts.
+- Engine discovery prefers engines with a valid `engine.json` when
+  multiple are registered (was: always `engines[0]`).
+- Updated all existing examples to reference `get_capabilities()` and
+  note editor connectivity requirements.
+- Expanded AGENTS.md decision tree, recipes, and tool reference for new tools.
+
 ## [0.1.0] - 2026-04-02
 
 ### Added
