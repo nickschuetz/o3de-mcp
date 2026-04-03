@@ -6,18 +6,26 @@ An [MCP](https://modelcontextprotocol.io) server that exposes [Open 3D Engine (O
 
 ## Features
 
+**Capability Detection**:
+- `get_capabilities` — check editor connectivity and CLI availability before using other tools
+- Dynamic tool discovery — new tools are automatically reported
+
 **Editor Automation** (requires a running O3DE Editor with RemoteConsole gem):
 - Execute arbitrary Python scripts inside the editor (`azlmbr` API)
-- List, create, and inspect entities
-- Add components to entities
-- Load levels and query level info
+- List, create, delete, and duplicate entities
+- Add components, get/set component properties
+- Load, save, and query levels
+- Enter/exit game mode, undo/redo
+- Fast-fail when editor is unreachable (avoids repeated timeouts)
 
-**Project & Build Management**:
-- Discover local O3DE engine installations
-- List registered projects and gems
-- Create new projects from templates
-- Register and enable gems
+**Project & Build Management** (CLI-based, no editor required):
+- Discover local O3DE engine installations (multi-engine support)
+- List registered projects, gems, and available templates
+- Create projects and gems from templates
+- Register, enable, and disable gems
+- Edit project properties
 - Build projects via CMake
+- Export projects for distribution
 
 ## Prerequisites
 
@@ -25,7 +33,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes [Open 3D Engine (O
 - O3DE installed and registered (engine path in the O3DE manifest or `O3DE_ENGINE_PATH` env var)
   - **Linux/macOS:** `~/.o3de/o3de_manifest.json`
   - **Windows:** `%USERPROFILE%\.o3de\o3de_manifest.json`
-- For editor tools: O3DE Editor running with **RemoteConsole** and **EditorPythonBindings** gems enabled
+- For editor tools (optional): O3DE Editor running with **RemoteConsole** and **EditorPythonBindings** gems enabled. Project tools work without the editor — call `get_capabilities()` to check what's available.
 
 ## Installation
 
@@ -124,7 +132,7 @@ GitHub Actions runs lint, type checking, tests, and SBOM generation on every pus
 | Document | Audience | Description |
 |----------|----------|-------------|
 | [AGENTS.md](AGENTS.md) | AI agents | Token-efficient usage guide, decision trees, error handling |
-| [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 15 tools |
+| [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all tools |
 | [docs/recipes.md](docs/recipes.md) | Agents & developers | Composable patterns for scenes, physics, lighting, scripting |
 | [docs/components.md](docs/components.md) | Agents & developers | O3DE component name catalog with dependency chains |
 
@@ -137,17 +145,21 @@ Progressive walkthroughs from project creation to a complete game:
 3. [Physics Playground](examples/03_physics_playground.md) — dynamic bodies, triggers, stacking
 4. [Scripted Game](examples/04_scripted_game.md) — complete mini-game with player, obstacles, goals
 5. [Batch Operations](examples/05_batch_operations.md) — efficient bulk entity creation patterns
+6. [CLI-Only Workflow](examples/06_cli_only_workflow.md) — project management without the editor
+7. [Gem Development](examples/07_gem_development.md) — create and integrate custom gems
 
 ## Configuration
 
 | Environment Variable | Description | Default |
 |---|---|---|
 | `O3DE_ENGINE_PATH` | Override automatic engine discovery | Auto-detected from manifest |
+| `O3DE_ENGINE_NAME` | Select engine by name when multiple are registered | First valid engine |
 | `O3DE_EDITOR_HOST` | Editor remote console host | `127.0.0.1` |
 | `O3DE_EDITOR_PORT` | Editor remote console port | `4600` |
 | `O3DE_CMAKE_GENERATOR` | CMake generator for builds | Auto-detected per platform |
 | `O3DE_CONFIGURE_TIMEOUT` | CMake configure timeout (seconds) | `600` |
 | `O3DE_BUILD_TIMEOUT` | CMake build timeout (seconds) | `1800` |
+| `O3DE_EXPORT_TIMEOUT` | Project export timeout (seconds) | `3600` |
 
 The server also reads the O3DE manifest for registered engines, projects, and gems:
 - **Linux/macOS:** `~/.o3de/o3de_manifest.json`
