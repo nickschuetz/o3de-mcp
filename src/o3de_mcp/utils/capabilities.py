@@ -182,7 +182,7 @@ async def get_server_capabilities(mcp: FastMCP | None = None) -> dict:
     }
     if not editor_connected:
         editor_info["hint"] = (
-            "Start the O3DE Editor with RemoteConsole and EditorPythonBindings gems enabled."
+            "Start the O3DE Editor with the AiCompanion and EditorPythonBindings gems enabled."
         )
 
     categories = _discover_tool_categories(mcp)

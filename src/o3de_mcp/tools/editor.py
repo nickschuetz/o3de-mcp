@@ -6,17 +6,21 @@
 """MCP tools for O3DE Editor automation.
 
 These tools interact with a running O3DE Editor instance via its
-EditorPythonBindings (EPB) remote console interface. The editor must be
-running with the RemoteConsole gem enabled and EditorPythonBindings active.
+EditorPythonBindings (EPB) interface. Communication uses the AiCompanion
+Gem's AgentServer (length-prefixed JSON protocol), with automatic fallback
+to the legacy RemoteConsole text protocol for older setups.
 
 Communication flow:
-  MCP client → this server → TCP socket (port 4600) → O3DE Editor remote console
-  The remote console executes ``pyRunScript`` commands in the editor's embedded
-  Python interpreter, which has access to the ``azlmbr`` namespace.
+  MCP client → this server → TCP socket (port 4600) → O3DE Editor AgentServer
+  The AgentServer executes Python scripts in the editor's embedded Python
+  interpreter, which has access to the ``azlmbr`` namespace.
 
 Configuration:
-  O3DE_EDITOR_HOST  — remote console host (default: 127.0.0.1)
-  O3DE_EDITOR_PORT  — remote console port (default: 4600)
+  O3DE_EDITOR_HOST       — editor host (default: 127.0.0.1)
+  O3DE_EDITOR_PORT       — editor port (default: 4600)
+  O3DE_EDITOR_TLS        — enable TLS (default: 0)
+  O3DE_EDITOR_TLS_VERIFY — verify TLS cert (default: 0)
+  O3DE_EDITOR_TLS_CA     — path to CA cert for verification
 """
 
 from __future__ import annotations
@@ -28,8 +32,11 @@ import logging
 import os
 import re
 import socket
+import ssl as ssl_module
+import struct
 import textwrap
 import time
+import uuid
 
 from mcp.server.fastmcp import FastMCP
 
@@ -87,7 +94,7 @@ def _connection_error_response(exc: Exception, host: str, port: int, timeout: fl
         return _format_error(
             "connection_refused",
             f"Could not connect to O3DE Editor on {host}:{port}. "
-            "Ensure the editor is running with RemoteConsole gem enabled.",
+            "Ensure the editor is running with the AiCompanion gem enabled.",
         )
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
         return _format_error(
@@ -138,12 +145,12 @@ def _validate_component_type(component_type: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Script encoding
+# Script encoding — legacy (RemoteConsole text protocol)
 # ---------------------------------------------------------------------------
 
 
 def _encode_script(script: str) -> str:
-    """Encode a Python script as a ``pyRunScript`` command.
+    """Encode a Python script as a ``pyRunScript`` command (legacy protocol).
 
     Uses base64 encoding so that arbitrary script content (including triple
     quotes, backslashes, and any other special characters) is transported
@@ -157,12 +164,67 @@ def _encode_script(script: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Socket I/O helpers
+# Framed protocol — AgentServer (length-prefixed JSON)
+# ---------------------------------------------------------------------------
+
+
+def _build_framed_request(
+    request_type: str, script: str | None = None, request_id: str | None = None
+) -> bytes:
+    """Build a length-prefixed JSON request for the AgentServer protocol."""
+    msg: dict = {
+        "id": request_id or str(uuid.uuid4()),
+        "type": request_type,
+    }
+    if script is not None:
+        msg["script"] = base64.b64encode(script.encode("utf-8")).decode("ascii")
+    body = json.dumps(msg).encode("utf-8")
+    return struct.pack(">I", len(body)) + body
+
+
+def _recv_framed(sock: socket.socket, timeout: float) -> dict:
+    """Read a length-prefixed JSON response from a socket (sync)."""
+    sock.settimeout(timeout)
+    header = b""
+    while len(header) < 4:
+        chunk = sock.recv(4 - len(header))
+        if not chunk:
+            raise ConnectionError("Connection closed while reading header")
+        header += chunk
+
+    length = struct.unpack(">I", header)[0]
+    if length > _MAX_RESPONSE_BYTES:
+        raise ValueError(f"Response too large: {length} bytes")
+
+    body = b""
+    while len(body) < length:
+        chunk = sock.recv(min(8192, length - len(body)))
+        if not chunk:
+            raise ConnectionError("Connection closed while reading body")
+        body += chunk
+
+    return json.loads(body.decode("utf-8"))
+
+
+async def _async_recv_framed(
+    reader: asyncio.StreamReader, timeout: float
+) -> dict:
+    """Read a length-prefixed JSON response from an async reader."""
+    header = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
+    length = struct.unpack(">I", header)[0]
+    if length > _MAX_RESPONSE_BYTES:
+        raise ValueError(f"Response too large: {length} bytes")
+    body = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
+    return json.loads(body.decode("utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Legacy protocol helpers — timeout-based I/O for RemoteConsole fallback
 # ---------------------------------------------------------------------------
 
 
 def _recv_all(sock: socket.socket, timeout: float) -> bytes:
-    """Read from a socket until EOF or no more data arrives.
+    """Read from a socket until EOF or no more data arrives (legacy protocol).
 
     Uses the full *timeout* for the first chunk (waiting for the editor to
     respond), then switches to a short tail timeout to collect any remaining
@@ -191,7 +253,7 @@ def _recv_all(sock: socket.socket, timeout: float) -> bytes:
 
 
 async def _async_recv_all(reader: asyncio.StreamReader, timeout: float) -> bytes:
-    """Async equivalent of :func:`_recv_all`."""
+    """Async equivalent of :func:`_recv_all` (legacy protocol)."""
     chunks: list[bytes] = []
     total = 0
     while total < _MAX_RESPONSE_BYTES:
@@ -213,6 +275,30 @@ async def _async_recv_all(reader: asyncio.StreamReader, timeout: float) -> bytes
 
 
 # ---------------------------------------------------------------------------
+# TLS helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_tls_context() -> ssl_module.SSLContext | None:
+    """Build an SSL context if TLS is enabled via environment variables."""
+    if os.environ.get("O3DE_EDITOR_TLS", "0") not in ("1", "true"):
+        return None
+
+    ctx = ssl_module.SSLContext(ssl_module.PROTOCOL_TLS_CLIENT)
+
+    verify = os.environ.get("O3DE_EDITOR_TLS_VERIFY", "0")
+    if verify in ("0", "false"):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl_module.CERT_NONE
+    else:
+        ca_path = os.environ.get("O3DE_EDITOR_TLS_CA")
+        if ca_path:
+            ctx.load_verify_locations(ca_path)
+
+    return ctx
+
+
+# ---------------------------------------------------------------------------
 # Sync transport (used by tests)
 # ---------------------------------------------------------------------------
 
@@ -223,7 +309,7 @@ def _send_editor_command(
     port: int | None = None,
     timeout: float = 10.0,
 ) -> str:
-    """Send a command to the O3DE Editor remote console and return the response.
+    """Send a command to the O3DE Editor and return the response.
 
     Creates a new TCP connection for each call.  This synchronous variant is
     kept primarily for test convenience; the async path via
@@ -242,8 +328,14 @@ def _send_editor_command(
 
 
 # ---------------------------------------------------------------------------
-# Async transport — persistent connection pool
+# Async transport — persistent connection pool with protocol auto-detection
 # ---------------------------------------------------------------------------
+
+
+# Protocol enum
+_PROTO_UNKNOWN = 0
+_PROTO_AGENT_SERVER = 1  # length-prefixed JSON (AiCompanion AgentServer)
+_PROTO_LEGACY = 2        # raw text (RemoteConsole)
 
 
 class _EditorConnectionPool:
@@ -252,6 +344,16 @@ class _EditorConnectionPool:
     Reuses a single connection across multiple tool calls to avoid TCP
     handshake overhead.  Automatically reconnects when the connection is
     lost or when host/port configuration changes.
+
+    Supports two protocols:
+      - **AgentServer** (preferred): length-prefixed JSON framing, used by
+        the AiCompanion gem's built-in server.
+      - **Legacy**: raw text ``pyRunScript`` commands over RemoteConsole.
+
+    Protocol is auto-detected on first connection by sending a framed
+    ``ping`` request. If a valid framed JSON response is received, the
+    AgentServer protocol is used for the connection lifetime. Otherwise,
+    the pool falls back to legacy mode.
 
     Includes a fast-fail window: after a connection failure, subsequent
     calls within ``_FAST_FAIL_WINDOW`` seconds return an error immediately
@@ -267,15 +369,16 @@ class _EditorConnectionPool:
         self._port: int | None = None
         self._lock = asyncio.Lock()
         self._last_failure_time: float | None = None
+        self._protocol: int = _PROTO_UNKNOWN
 
-    async def send_command(
+    async def send_script(
         self,
-        command: str,
+        script: str,
         host: str | None = None,
         port: int | None = None,
         timeout: float = 10.0,
     ) -> str:
-        """Send *command* and return the editor's response text."""
+        """Encode and send a Python script, returning the output text."""
         host = host or _get_editor_host()
         port = port or _get_editor_port()
 
@@ -287,7 +390,7 @@ class _EditorConnectionPool:
                     return _format_error(
                         "editor_unavailable",
                         f"O3DE Editor is not reachable on {host}:{port}. "
-                        "Start the editor with RemoteConsole gem enabled, "
+                        "Start the editor with the AiCompanion gem enabled, "
                         "or call get_capabilities() to check status. "
                         "This operation requires a running editor and "
                         "cannot be performed via CLI.",
@@ -295,11 +398,16 @@ class _EditorConnectionPool:
 
             try:
                 reader, writer = await self._ensure_connected(host, port, timeout)
-                writer.write(command.encode("utf-8") + b"\n")
-                await writer.drain()
-                response = await _async_recv_all(reader, timeout)
-                self._last_failure_time = None  # Reset on success
-                return response.decode("utf-8", errors="replace").strip()
+
+                if self._protocol == _PROTO_AGENT_SERVER:
+                    return await self._send_framed_script(
+                        reader, writer, script, timeout
+                    )
+                else:
+                    return await self._send_legacy_script(
+                        reader, writer, script, timeout
+                    )
+
             except (
                 ConnectionRefusedError,
                 TimeoutError,
@@ -309,6 +417,41 @@ class _EditorConnectionPool:
                 self._last_failure_time = time.monotonic()
                 await self._close()
                 return _connection_error_response(exc, host, port, timeout)
+
+    async def _send_framed_script(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        script: str,
+        timeout: float,
+    ) -> str:
+        """Send a script via the AgentServer framed JSON protocol."""
+        request_bytes = _build_framed_request("execute_python", script=script)
+        writer.write(request_bytes)
+        await writer.drain()
+        response = await _async_recv_framed(reader, timeout)
+        self._last_failure_time = None
+
+        if response.get("status") == "error":
+            error_msg = response.get("error", "Unknown error")
+            return _format_error("editor_error", error_msg)
+
+        return response.get("output", "")
+
+    async def _send_legacy_script(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        script: str,
+        timeout: float,
+    ) -> str:
+        """Send a script via the legacy RemoteConsole text protocol."""
+        command = _encode_script(script)
+        writer.write(command.encode("utf-8") + b"\n")
+        await writer.drain()
+        response = await _async_recv_all(reader, timeout)
+        self._last_failure_time = None
+        return response.decode("utf-8", errors="replace").strip()
 
     async def _ensure_connected(
         self, host: str, port: int, timeout: float
@@ -323,14 +466,59 @@ class _EditorConnectionPool:
             return self._reader, self._writer  # type: ignore[return-value]
 
         await self._close()
+
+        ssl_ctx = _get_tls_context()
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=timeout
+            asyncio.open_connection(host, port, ssl=ssl_ctx), timeout=timeout
         )
         self._reader = reader
         self._writer = writer
         self._host = host
         self._port = port
+
+        # Auto-detect protocol by sending a framed ping
+        self._protocol = await self._detect_protocol(reader, writer)
+        logger.info(
+            "Connected to %s:%d (protocol=%s, tls=%s)",
+            host,
+            port,
+            "agent_server" if self._protocol == _PROTO_AGENT_SERVER else "legacy",
+            "yes" if ssl_ctx else "no",
+        )
+
         return reader, writer
+
+    async def _detect_protocol(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> int:
+        """Detect whether the server speaks AgentServer or legacy protocol.
+
+        Sends a framed ``ping`` request. If a valid framed JSON response
+        with ``"status": "ok"`` comes back within 2 seconds, the server
+        is an AgentServer. Otherwise, fall back to legacy mode.
+        """
+        try:
+            ping_bytes = _build_framed_request("ping")
+            writer.write(ping_bytes)
+            await writer.drain()
+            response = await _async_recv_framed(reader, timeout=2.0)
+            if isinstance(response, dict) and response.get("status") == "ok":
+                return _PROTO_AGENT_SERVER
+        except Exception:
+            # Any failure means not an AgentServer — reconnect for legacy
+            await self._close()
+            host = self._host or _get_editor_host()
+            port = self._port or _get_editor_port()
+            ssl_ctx = _get_tls_context()
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port, ssl=ssl_ctx), timeout=5.0
+            )
+            self._reader = reader
+            self._writer = writer
+
+        return _PROTO_LEGACY
 
     async def _close(self) -> None:
         if self._writer is not None:
@@ -343,6 +531,7 @@ class _EditorConnectionPool:
             self._writer = None
             self._host = None
             self._port = None
+            self._protocol = _PROTO_UNKNOWN
 
 
 # Module-level pool instance shared by all tools
@@ -356,7 +545,7 @@ _pool = _EditorConnectionPool()
 
 async def _async_run_editor_script(script: str) -> str:
     """Encode a Python script and send it to the editor via the pool."""
-    return await _pool.send_command(_encode_script(script))
+    return await _pool.send_script(script)
 
 
 def _run_editor_script(script: str) -> str:

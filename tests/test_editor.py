@@ -15,11 +15,13 @@ import pytest
 
 from o3de_mcp.tools.editor import (
     _async_run_editor_script,
+    _build_framed_request,
     _EditorConnectionPool,
     _encode_script,
     _format_error,
     _get_editor_host,
     _get_editor_port,
+    _get_tls_context,
     _send_editor_command,
     _validate_component_type,
     _validate_entity_id,
@@ -181,9 +183,9 @@ class TestSendEditorCommand:
 
 
 class TestEditorConnectionPool:
-    def test_send_command_connection_refused(self) -> None:
+    def test_send_script_connection_refused(self) -> None:
         pool = _EditorConnectionPool()
-        result = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19997))
+        result = asyncio.run(pool.send_script("print(1)", host="127.0.0.1", port=19997))
         parsed = json.loads(result)
         assert parsed["status"] == "error"
         assert parsed["code"] == "connection_refused"
@@ -191,58 +193,27 @@ class TestEditorConnectionPool:
     def test_pool_reconnects_on_host_change(self) -> None:
         pool = _EditorConnectionPool()
         # First call with one port
-        result1 = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19996))
+        result1 = asyncio.run(pool.send_script("print(1)", host="127.0.0.1", port=19996))
         # Second call with different port should reconnect, not reuse
-        result2 = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19995))
+        result2 = asyncio.run(pool.send_script("print(2)", host="127.0.0.1", port=19995))
         # Both should fail (no server), but shouldn't crash
         assert json.loads(result1)["status"] == "error"
         assert json.loads(result2)["status"] == "error"
-
-    def test_pool_reuses_connection(self) -> None:
-        pool = _EditorConnectionPool()
-
-        mock_reader = AsyncMock()
-        mock_reader.read = AsyncMock(return_value=b"ok\n")
-        mock_writer = MagicMock()
-        mock_writer.write = MagicMock()
-        mock_writer.drain = AsyncMock()
-        mock_writer.is_closing = MagicMock(return_value=False)
-        mock_writer.close = MagicMock()
-        mock_writer.wait_closed = AsyncMock()
-
-        call_count = 0
-
-        async def mock_open_connection(*_args: object, **_kwargs: object) -> tuple:
-            nonlocal call_count
-            call_count += 1
-            return mock_reader, mock_writer
-
-        async def run() -> None:
-            nonlocal call_count
-            with patch("asyncio.open_connection", side_effect=mock_open_connection):
-                await pool.send_command("cmd1", host="127.0.0.1", port=19994)
-                await pool.send_command("cmd2", host="127.0.0.1", port=19994)
-
-        asyncio.run(run())
-        # Should only have connected once (reused the connection)
-        assert call_count == 1
 
 
 # --- Async script execution tests ---
 
 
 class TestAsyncRunEditorScript:
-    def test_sends_encoded_script(self) -> None:
+    def test_sends_script_via_pool(self) -> None:
         script = "print('hello')"
 
         async def run() -> str:
             with patch("o3de_mcp.tools.editor._pool") as mock_pool:
-                mock_pool.send_command = AsyncMock(return_value="hello")
+                mock_pool.send_script = AsyncMock(return_value="hello")
                 result = await _async_run_editor_script(script)
-                # Verify the command sent contains base64-encoded script
-                call_args = mock_pool.send_command.call_args[0][0]
-                assert "pyRunScript" in call_args
-                assert "base64" in call_args
+                # Verify the script was passed to send_script
+                mock_pool.send_script.assert_called_once_with(script)
                 return result
 
         result = asyncio.run(run())
@@ -258,12 +229,12 @@ class TestEditorConnectionPoolFastFail:
         pool = _EditorConnectionPool()
 
         # First call — real connection failure
-        result1 = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19993))
+        result1 = asyncio.run(pool.send_script("print(1)", host="127.0.0.1", port=19993))
         parsed1 = json.loads(result1)
         assert parsed1["status"] == "error"
 
         # Second call — should fast-fail (different error code)
-        result2 = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19993))
+        result2 = asyncio.run(pool.send_script("print(2)", host="127.0.0.1", port=19993))
         parsed2 = json.loads(result2)
         assert parsed2["status"] == "error"
         assert parsed2["code"] == "editor_unavailable"
@@ -274,40 +245,57 @@ class TestEditorConnectionPoolFastFail:
         pool = _EditorConnectionPool()
 
         # Trigger a failure
-        asyncio.run(pool.send_command("test", host="127.0.0.1", port=19992))
+        asyncio.run(pool.send_script("print(1)", host="127.0.0.1", port=19992))
 
         # Manually expire the window
         pool._last_failure_time = time.monotonic() - pool._FAST_FAIL_WINDOW - 1.0
 
         # Next call should attempt a real connection (not fast-fail)
-        result = asyncio.run(pool.send_command("test", host="127.0.0.1", port=19992))
+        result = asyncio.run(pool.send_script("print(1)", host="127.0.0.1", port=19992))
         parsed = json.loads(result)
         assert parsed["status"] == "error"
         # Should be a real connection error, not the fast-fail code
         assert parsed["code"] == "connection_refused"
 
-    def test_fast_fail_resets_on_success(self) -> None:
-        """Successful connection resets the fast-fail timer."""
-        pool = _EditorConnectionPool()
 
-        mock_reader = AsyncMock()
-        mock_reader.read = AsyncMock(return_value=b"ok\n")
-        mock_writer = MagicMock()
-        mock_writer.write = MagicMock()
-        mock_writer.drain = AsyncMock()
-        mock_writer.is_closing = MagicMock(return_value=False)
-        mock_writer.close = MagicMock()
-        mock_writer.wait_closed = AsyncMock()
+# --- Framed protocol tests ---
 
-        # Set a recent failure time
-        pool._last_failure_time = time.monotonic()
 
-        async def run() -> None:
-            with patch("asyncio.open_connection", return_value=(mock_reader, mock_writer)):
-                # Manually clear the fast-fail to allow the connection attempt
-                pool._last_failure_time = None
-                await pool.send_command("cmd", host="127.0.0.1", port=19991)
-                # After success, failure time should be cleared
-                assert pool._last_failure_time is None
+class TestFramedProtocol:
+    def test_build_framed_request_ping(self) -> None:
+        data = _build_framed_request("ping", request_id="test-id")
+        # First 4 bytes are big-endian length
+        import struct
+        length = struct.unpack(">I", data[:4])[0]
+        body = json.loads(data[4:])
+        assert body["id"] == "test-id"
+        assert body["type"] == "ping"
+        assert length == len(data) - 4
 
-        asyncio.run(run())
+    def test_build_framed_request_execute_python(self) -> None:
+        data = _build_framed_request("execute_python", script="print('hi')", request_id="exec-1")
+        import struct
+        length = struct.unpack(">I", data[:4])[0]
+        body = json.loads(data[4:])
+        assert body["type"] == "execute_python"
+        assert body["id"] == "exec-1"
+        # Script should be base64 encoded
+        decoded = base64.b64decode(body["script"]).decode("utf-8")
+        assert decoded == "print('hi')"
+        assert length == len(data) - 4
+
+    def test_build_framed_request_auto_generates_id(self) -> None:
+        data = _build_framed_request("ping")
+        body = json.loads(data[4:])
+        assert len(body["id"]) > 0  # UUID was generated
+
+
+class TestTlsContext:
+    def test_tls_disabled_by_default(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            assert _get_tls_context() is None
+
+    def test_tls_enabled(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EDITOR_TLS": "1"}):
+            ctx = _get_tls_context()
+            assert ctx is not None

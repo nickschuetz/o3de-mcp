@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AgentServer protocol support**: Length-prefixed JSON framing for communication
+  with the AiCompanion gem's built-in AgentServer (replaces RemoteConsole dependency).
+  - `_build_framed_request()` — constructs length-prefixed JSON messages
+  - `_recv_framed()` / `_async_recv_framed()` — reads length-prefixed responses
+  - Automatic protocol detection: sends a framed `ping` on first connect;
+    falls back to legacy RemoteConsole text protocol if the server doesn't respond
+    with valid JSON.
+- **TLS client support**: Optional encrypted connections via `O3DE_EDITOR_TLS`,
+  `O3DE_EDITOR_TLS_VERIFY`, and `O3DE_EDITOR_TLS_CA` env vars.
+
+### Changed
+
+- `_EditorConnectionPool` now uses `send_script()` (was `send_command()`),
+  dispatching to framed or legacy protocol based on auto-detection.
+- Updated capability probe hint to reference AiCompanion instead of RemoteConsole.
+- Error messages now reference AiCompanion AgentServer instead of RemoteConsole.
+
 ### Fixed
 
 - **Windows Visual Studio detection**: CMake generator is now auto-detected
