@@ -71,12 +71,75 @@ def _get_export_timeout() -> int:
         return _DEFAULT_EXPORT_TIMEOUT
 
 
+def _detect_vs_generator() -> str | None:
+    """Detect the latest installed Visual Studio and return its CMake generator string.
+
+    Uses ``vswhere.exe`` (shipped with the Visual Studio Installer) to find
+    installed VS instances.  Returns a string like ``Visual Studio 17 2022``
+    or ``None`` if detection fails.
+    """
+    vswhere = (
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+        / "Microsoft Visual Studio"
+        / "Installer"
+        / "vswhere.exe"
+    )
+    if not vswhere.is_file():
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                str(vswhere),
+                "-latest",
+                "-products",
+                "*",
+                "-requires",
+                "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                "-format",
+                "json",
+                "-utf8",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        instances = json.loads(result.stdout)
+        if not instances:
+            return None
+
+        instance = instances[0]
+        version_str = instance.get("installationVersion", "")
+        major = int(version_str.split(".")[0])
+
+        # The product line version (e.g. "2022") lives in catalog.productLineVersion.
+        catalog = instance.get("catalog", {})
+        year = catalog.get("productLineVersion", "")
+
+        if major and year:
+            return f"Visual Studio {major} {year}"
+    except (
+        subprocess.TimeoutExpired,
+        OSError,
+        ValueError,
+        KeyError,
+        json.JSONDecodeError,
+    ):
+        pass
+
+    return None
+
+
 def _get_cmake_generator() -> str | None:
     """Return the CMake generator to use, or None for CMake's default.
 
     Can be overridden via ``O3DE_CMAKE_GENERATOR``.  When not set, picks a
     sensible default per platform:
-      - Windows: ``Visual Studio 17 2022`` (most common for O3DE)
+      - Windows: auto-detects the latest installed Visual Studio via
+        ``vswhere.exe`` and returns the corresponding CMake generator.
       - macOS / Linux: ``Ninja Multi-Config`` if ``ninja`` is on PATH,
         otherwise falls back to CMake's default.
     """
@@ -85,7 +148,7 @@ def _get_cmake_generator() -> str | None:
         return env
 
     if sys.platform == "win32":
-        return "Visual Studio 17 2022"
+        return _detect_vs_generator()
 
     # Prefer Ninja Multi-Config on Unix if available (faster builds)
     import shutil

@@ -16,6 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from o3de_mcp.tools.project import (
+    _detect_vs_generator,
     _get_build_timeout,
     _get_cmake_generator,
     _get_configure_timeout,
@@ -111,16 +112,96 @@ class TestTimeoutConfig:
 # --- CMake generator tests ---
 
 
+class TestDetectVSGenerator:
+    """Tests for _detect_vs_generator() — vswhere-based VS detection."""
+
+    _VSWHERE_JSON = json.dumps(
+        [
+            {
+                "installationVersion": "17.8.34330.188",
+                "catalog": {"productLineVersion": "2022"},
+            }
+        ]
+    )
+
+    _VSWHERE_JSON_2026 = json.dumps(
+        [
+            {
+                "installationVersion": "19.0.12345.0",
+                "catalog": {"productLineVersion": "2026"},
+            }
+        ]
+    )
+
+    def test_detects_vs2022(self) -> None:
+        with (
+            patch("o3de_mcp.tools.project.Path.is_file", return_value=True),
+            patch("o3de_mcp.tools.project.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=self._VSWHERE_JSON
+            )
+            assert _detect_vs_generator() == "Visual Studio 17 2022"
+
+    def test_detects_vs2026(self) -> None:
+        with (
+            patch("o3de_mcp.tools.project.Path.is_file", return_value=True),
+            patch("o3de_mcp.tools.project.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout=self._VSWHERE_JSON_2026
+            )
+            assert _detect_vs_generator() == "Visual Studio 19 2026"
+
+    def test_returns_none_when_vswhere_missing(self) -> None:
+        with patch("o3de_mcp.tools.project.Path.is_file", return_value=False):
+            assert _detect_vs_generator() is None
+
+    def test_returns_none_on_vswhere_failure(self) -> None:
+        with (
+            patch("o3de_mcp.tools.project.Path.is_file", return_value=True),
+            patch("o3de_mcp.tools.project.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=1, stdout=""
+            )
+            assert _detect_vs_generator() is None
+
+    def test_returns_none_on_empty_instances(self) -> None:
+        with (
+            patch("o3de_mcp.tools.project.Path.is_file", return_value=True),
+            patch("o3de_mcp.tools.project.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="[]"
+            )
+            assert _detect_vs_generator() is None
+
+
 class TestCMakeGenerator:
     def test_env_override(self) -> None:
         with patch.dict("os.environ", {"O3DE_CMAKE_GENERATOR": "Unix Makefiles"}):
             assert _get_cmake_generator() == "Unix Makefiles"
 
-    def test_windows_default(self) -> None:
+    def test_windows_delegates_to_detect_vs(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             with patch("o3de_mcp.tools.project.sys") as mock_sys:
                 mock_sys.platform = "win32"
-                assert _get_cmake_generator() == "Visual Studio 17 2022"
+                with patch(
+                    "o3de_mcp.tools.project._detect_vs_generator",
+                    return_value="Visual Studio 17 2022",
+                ):
+                    assert _get_cmake_generator() == "Visual Studio 17 2022"
+
+    def test_windows_returns_none_when_no_vs(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("o3de_mcp.tools.project.sys") as mock_sys:
+                mock_sys.platform = "win32"
+                with patch(
+                    "o3de_mcp.tools.project._detect_vs_generator",
+                    return_value=None,
+                ):
+                    assert _get_cmake_generator() is None
 
     def test_linux_with_ninja(self) -> None:
         with patch.dict("os.environ", {}, clear=True):

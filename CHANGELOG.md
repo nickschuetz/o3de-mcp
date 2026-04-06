@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Windows Visual Studio detection**: CMake generator is now auto-detected
+  via `vswhere.exe` instead of being hardcoded to `Visual Studio 17 2022`.
+  This supports all VS editions and versions (2017, 2019, 2022, 2026, etc.).
+  Falls back to CMake's default if detection fails.
+
 ## [0.2.0] - 2026-04-03
 
 ### Added
