@@ -162,9 +162,7 @@ class TestDetectVSGenerator:
             patch("o3de_mcp.tools.project.Path.is_file", return_value=True),
             patch("o3de_mcp.tools.project.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = subprocess.CompletedProcess(
-                args=[], returncode=1, stdout=""
-            )
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="")
             assert _detect_vs_generator() is None
 
     def test_returns_none_on_empty_instances(self) -> None:
@@ -172,9 +170,7 @@ class TestDetectVSGenerator:
             patch("o3de_mcp.tools.project.Path.is_file", return_value=True),
             patch("o3de_mcp.tools.project.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = subprocess.CompletedProcess(
-                args=[], returncode=0, stdout="[]"
-            )
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="[]")
             assert _detect_vs_generator() is None
 
 
