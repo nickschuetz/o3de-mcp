@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg)](LICENSE.txt)
 
-An [MCP](https://modelcontextprotocol.io) server that exposes [Open 3D Engine (O3DE)](https://o3de.org) capabilities to AI agents and assistants — editor automation, project management, and build orchestration.
+Automate [Open 3D Engine (O3DE)](https://o3de.org) with AI — an [MCP](https://modelcontextprotocol.io) server for editor control, project & build management.
 
 See the [architecture documentation](docs/architecture.md) for a detailed system diagram and communication flow.
 

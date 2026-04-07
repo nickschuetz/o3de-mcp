@@ -1,7 +1,7 @@
 [project]
 name = "o3de-mcp"
 version = "0.3.0"
-description = "MCP server for Open 3D Engine (O3DE) — editor automation and project management"
+description = "Automate Open 3D Engine with AI — an MCP server for editor control, project & build management"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0 OR MIT"
