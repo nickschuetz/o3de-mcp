@@ -182,7 +182,7 @@ def _build_framed_request(
     return struct.pack(">I", len(body)) + body
 
 
-def _recv_framed(sock: socket.socket, timeout: float) -> dict:
+def _recv_framed(sock: socket.socket, timeout: float) -> dict[str, object]:
     """Read a length-prefixed JSON response from a socket (sync)."""
     sock.settimeout(timeout)
     header = b""
@@ -203,17 +203,19 @@ def _recv_framed(sock: socket.socket, timeout: float) -> dict:
             raise ConnectionError("Connection closed while reading body")
         body += chunk
 
-    return json.loads(body.decode("utf-8"))
+    result: dict[str, object] = json.loads(body.decode("utf-8"))
+    return result
 
 
-async def _async_recv_framed(reader: asyncio.StreamReader, timeout: float) -> dict:
+async def _async_recv_framed(reader: asyncio.StreamReader, timeout: float) -> dict[str, object]:
     """Read a length-prefixed JSON response from an async reader."""
     header = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
     length = struct.unpack(">I", header)[0]
     if length > _MAX_RESPONSE_BYTES:
         raise ValueError(f"Response too large: {length} bytes")
     body = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
-    return json.loads(body.decode("utf-8"))
+    result: dict[str, object] = json.loads(body.decode("utf-8"))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -427,10 +429,10 @@ class _EditorConnectionPool:
         self._last_failure_time = None
 
         if response.get("status") == "error":
-            error_msg = response.get("error", "Unknown error")
+            error_msg = str(response.get("error", "Unknown error"))
             return _format_error("editor_error", error_msg)
 
-        return response.get("output", "")
+        return str(response.get("output", ""))
 
     async def _send_legacy_script(
         self,

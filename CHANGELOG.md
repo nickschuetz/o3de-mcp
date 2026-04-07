@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   via `vswhere.exe` instead of being hardcoded to `Visual Studio 17 2022`.
   This supports all VS editions and versions (2017, 2019, 2022, 2026, etc.).
   Falls back to CMake's default if detection fails.
+- **Mypy type errors**: Added explicit type annotations to framed protocol
+  helpers (`_recv_framed`, `_async_recv_framed`) and `str()` casts for
+  `json.loads` return values in editor tools.
 
 ## [0.2.0] - 2026-04-03
 
