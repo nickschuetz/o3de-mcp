@@ -11,34 +11,59 @@ Editor communication relies on the [**o3de-ai-companion-gem**](https://github.co
 ## Diagram
 
 ```mermaid
+---
+config:
+  themeVariables:
+    fontSize: 14px
+  flowchart:
+    nodeSpacing: 30
+    rankSpacing: 40
+---
 graph LR
     subgraph AI["AI Assistant"]
-        CC["Claude Code / Claude Desktop / MCP Client"]
+        CC["Claude Code<br/>Claude Desktop<br/>MCP Client"]
     end
 
     subgraph MCP["o3de-mcp Server"]
-        S["server.py (FastMCP)"]
-        ED["editor.py"] & PR["project.py"] & CAP["capabilities.py"]
-        UO["utils/o3de.py"]
+        S["server.py<br/>(FastMCP)"]
+        CAP["capabilities.py<br/>get_capabilities"]
+        ED["editor.py<br/>Entity, Component,<br/>Level, Game Mode"]
+        PR["project.py<br/>Project, Gem,<br/>Build, Export"]
+        UC["utils/capabilities.py<br/>Probe editor & CLI"]
+        UO["utils/o3de.py<br/>Engine discovery,<br/>CLI runner"]
     end
 
-    subgraph O3DE["O3DE Ecosystem"]
-        AS["AgentServer (AiCompanion Gem)"] --> EPB["EditorPythonBindings (azlmbr)"]
-        SCRIPT["O3DE CLI (scripts/o3de.sh)"]
-        MANIFEST["~/.o3de/o3de_manifest.json"]
+    subgraph O3DE["O3DE Editor"]
+        AS["AgentServer<br/>(AiCompanion Gem)"]
+        EPB["EditorPythonBindings<br/>(azlmbr API)"]
     end
 
-    CC -- "MCP (stdio)" --> S
-    S --> ED & PR & CAP
-    ED -- "TCP :4600" --> AS
+    subgraph CLI["O3DE CLI"]
+        SCRIPT["scripts/o3de.sh<br/>scripts/o3de.bat"]
+    end
+
+    subgraph FS["Filesystem"]
+        MANIFEST["~/.o3de/<br/>o3de_manifest.json"]
+    end
+
+    CC -- "MCP protocol<br/>(stdio)" --> S
+    S --> CAP
+    S --> ED
+    S --> PR
+    CAP --> UC
+    ED -- "TCP :4600<br/>(length-prefixed JSON)" --> AS
+    AS --> EPB
     PR --> UO
-    CAP --> UO
     UO -- subprocess --> SCRIPT
     UO -- reads --> MANIFEST
+    UC --> UO
+    UC -- "TCP probe" --> AS
 
     style AI fill:#e8f0fe,stroke:#4285f4
     style MCP fill:#fef7e0,stroke:#f9ab00
     style O3DE fill:#e6f4ea,stroke:#34a853
+    style CLI fill:#fce8e6,stroke:#ea4335
+    style FS fill:#f3e8fd,stroke:#a142f4
 ```
 
 ## Communication Paths
