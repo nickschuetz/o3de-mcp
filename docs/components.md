@@ -33,10 +33,17 @@ match exactly — use these strings verbatim.
 
 ## Physics (PhysX)
 
+> **O3DE 2510+:** PhysX component names were changed. `PhysX Collider` →
+> `PhysX Primitive Collider`, `PhysX Rigid Body` → `PhysX Dynamic Rigid Body`.
+> Use the names below for O3DE 2510+. For older builds, use the legacy names.
+
 | Component | Purpose | Behavior |
 |-----------|---------|----------|
-| `PhysX Collider` | Collision shape | Static if alone, solid blocker |
-| `PhysX Rigid Body` | Dynamic physics body | Requires PhysX Collider |
+| `PhysX Primitive Collider` | Collision shape (box, sphere, capsule) | Static if alone, solid blocker |
+| `PhysX Mesh Collider` | Collision shape from mesh geometry | For complex shapes |
+| `PhysX Shape Collider` | Collision from Shape component | Uses attached Shape |
+| `PhysX Dynamic Rigid Body` | Dynamic physics body | Requires a collider |
+| `PhysX Static Rigid Body` | Optimized static body | For non-moving colliders |
 | `PhysX Character Controller` | Player-style movement | Alternative to Rigid Body |
 | `PhysX Force Region` | Applies force to entering bodies | e.g. wind, gravity wells |
 | `PhysX Ball Joint` | Ball-and-socket constraint | Between two bodies |
@@ -47,10 +54,10 @@ match exactly — use these strings verbatim.
 
 | Desired Behavior | Components |
 |------------------|------------|
-| Static wall/floor | Mesh + PhysX Collider |
-| Falling/movable object | Mesh + PhysX Collider + PhysX Rigid Body |
-| Trigger zone (invisible) | PhysX Collider (IsTrigger=True) |
-| Kinematic platform | PhysX Collider + PhysX Rigid Body (Kinematic=True) |
+| Static wall/floor | Mesh + PhysX Primitive Collider |
+| Falling/movable object | Mesh + PhysX Primitive Collider + PhysX Dynamic Rigid Body |
+| Trigger zone (invisible) | PhysX Primitive Collider (IsTrigger=True) |
+| Kinematic platform | PhysX Primitive Collider + PhysX Dynamic Rigid Body (Kinematic=True) |
 | Player character | Mesh + PhysX Character Controller |
 
 ## Scripting
@@ -129,7 +136,7 @@ dependencies, but knowing them avoids confusion:
 
 ```
 Mesh → Transform (auto)
-PhysX Rigid Body → PhysX Collider → Transform
+PhysX Dynamic Rigid Body → PhysX Primitive Collider → Transform
 PhysX Character Controller → Transform
 Actor → Transform
 Anim Graph → Actor
@@ -143,12 +150,12 @@ Terrain Layer Spawner → Axis Aligned Box Shape
 
 ### Static Prop
 ```
-Mesh + Material + PhysX Collider
+Mesh + Material + PhysX Primitive Collider
 ```
 
 ### Dynamic Object
 ```
-Mesh + Material + PhysX Collider + PhysX Rigid Body
+Mesh + Material + PhysX Primitive Collider + PhysX Dynamic Rigid Body
 ```
 
 ### Character
@@ -170,5 +177,5 @@ Spot Light           (flashlight)
 
 ### Trigger Zone
 ```
-Box Shape + PhysX Collider (IsTrigger=True)
+Box Shape + PhysX Primitive Collider (IsTrigger=True)
 ```

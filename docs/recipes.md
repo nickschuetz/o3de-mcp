@@ -99,8 +99,8 @@ missing, set `O3DE_ENGINE_PATH` and try again.
 ```
 1. create_entity(name="Crate")
 2. add_component(entity_id=<id>, component_type="Mesh")
-3. add_component(entity_id=<id>, component_type="PhysX Collider")
-4. add_component(entity_id=<id>, component_type="PhysX Rigid Body")
+3. add_component(entity_id=<id>, component_type="PhysX Primitive Collider")
+4. add_component(entity_id=<id>, component_type="PhysX Dynamic Rigid Body")
 ```
 
 ### Recipe: Entity hierarchy (parent-child)
@@ -146,7 +146,7 @@ missing, set `O3DE_ENGINE_PATH` and try again.
 ```
 1. create_entity(name="Wall")
 2. add_component(entity_id=<id>, component_type="Mesh")
-3. add_component(entity_id=<id>, component_type="PhysX Collider")
+3. add_component(entity_id=<id>, component_type="PhysX Primitive Collider")
 ```
 
 > No Rigid Body = static. The collider alone makes it solid but immovable.
@@ -156,15 +156,15 @@ missing, set `O3DE_ENGINE_PATH` and try again.
 ```
 1. create_entity(name="Ball")
 2. add_component(entity_id=<id>, component_type="Mesh")
-3. add_component(entity_id=<id>, component_type="PhysX Collider")
-4. add_component(entity_id=<id>, component_type="PhysX Rigid Body")
+3. add_component(entity_id=<id>, component_type="PhysX Primitive Collider")
+4. add_component(entity_id=<id>, component_type="PhysX Dynamic Rigid Body")
 ```
 
 ### Recipe: Trigger volume (invisible zone)
 
 ```
 1. create_entity(name="WinZone")
-2. add_component(entity_id=<id>, component_type="PhysX Collider")
+2. add_component(entity_id=<id>, component_type="PhysX Primitive Collider")
 ```
 
 > Configure the collider as a trigger via `run_editor_python` to set
@@ -200,6 +200,7 @@ components.TransformBus(bus.Event, 'SetWorldTranslation', eid, pos)
 # Use via run_editor_python
 import azlmbr.editor as editor
 import azlmbr.bus as bus
+import azlmbr.entity as entity
 import azlmbr.asset as asset
 
 eid = azlmbr.entity.EntityId('<entity_id>')
@@ -207,10 +208,19 @@ mesh_asset = asset.AssetCatalogRequestBus(
     bus.Broadcast, 'GetAssetIdByPath',
     'objects/primitives/cube.fbx.azmodel', False
 )
-editor.EditorComponentAPIBus(
-    bus.Event, 'SetComponentProperty', eid,
-    'Mesh|Model Asset', mesh_asset
+mesh_t = editor.EditorComponentAPIBus(
+    bus.Broadcast, 'FindComponentTypeIdsByEntityType',
+    ['Mesh'], entity.EntityType().Game
+)[0]
+outcome = editor.EditorComponentAPIBus(
+    bus.Broadcast, 'GetComponentOfType', eid, mesh_t
 )
+if outcome.IsSuccess():
+    pair = outcome.GetValue()
+    editor.EditorComponentAPIBus(
+        bus.Broadcast, 'SetComponentProperty', pair,
+        'Controller|Configuration|Model Asset', mesh_asset
+    )
 ```
 
 ### Recipe: Batch-create multiple entities
@@ -258,7 +268,7 @@ Complete sequence to set up a playable level from empty:
 6.  add_component(<sun>, "Directional Light")
 7.  create_entity(name="Ground")
 8.  add_component(<ground>, "Mesh")
-9.  add_component(<ground>, "PhysX Collider")
+9.  add_component(<ground>, "PhysX Primitive Collider")
 10. create_entity(name="PlayerCamera")
 11. add_component(<cam>, "Camera")
 12. create_entity(name="GameManager")

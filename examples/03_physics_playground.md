@@ -18,8 +18,8 @@ Add dynamic physics objects to a scene — crates, balls, and trigger zones.
 ```json
 {"tool": "create_entity", "arguments": {"name": "Crate"}}
 {"tool": "add_component", "arguments": {"entity_id": "<crate_id>", "component_type": "Mesh"}}
-{"tool": "add_component", "arguments": {"entity_id": "<crate_id>", "component_type": "PhysX Collider"}}
-{"tool": "add_component", "arguments": {"entity_id": "<crate_id>", "component_type": "PhysX Rigid Body"}}
+{"tool": "add_component", "arguments": {"entity_id": "<crate_id>", "component_type": "PhysX Primitive Collider"}}
+{"tool": "add_component", "arguments": {"entity_id": "<crate_id>", "component_type": "PhysX Dynamic Rigid Body"}}
 ```
 
 Position it above the ground so it falls when play mode starts:
@@ -50,8 +50,8 @@ Then add physics components to each:
 
 ```json
 {"tool": "add_component", "arguments": {"entity_id": "<id_0>", "component_type": "Mesh"}}
-{"tool": "add_component", "arguments": {"entity_id": "<id_0>", "component_type": "PhysX Collider"}}
-{"tool": "add_component", "arguments": {"entity_id": "<id_0>", "component_type": "PhysX Rigid Body"}}
+{"tool": "add_component", "arguments": {"entity_id": "<id_0>", "component_type": "PhysX Primitive Collider"}}
+{"tool": "add_component", "arguments": {"entity_id": "<id_0>", "component_type": "PhysX Dynamic Rigid Body"}}
 ```
 
 Repeat for each crate, or use a batch script:
@@ -60,7 +60,7 @@ Repeat for each crate, or use a batch script:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\n\nsearch = entity.SearchFilter()\nsearch.names = ['StackCrate_*']\nids = entity.SearchBus(bus.Broadcast, 'SearchEntities', search)\n\nfor eid in ids:\n    mesh_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['Mesh'], entity.EntityType().Game)\n    collider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Collider'], entity.EntityType().Game)\n    rb_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Rigid Body'], entity.EntityType().Game)\n    editor.EditorComponentAPIBus(bus.Event, 'AddComponentsOfType', eid, mesh_types + collider_types + rb_types)\n\nprint(f'Added components to {len(ids)} crates')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\n\nsearch = entity.SearchFilter()\nsearch.names = ['StackCrate_*']\nids = entity.SearchBus(bus.Broadcast, 'SearchEntities', search)\n\nmesh_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['Mesh'], entity.EntityType().Game)\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\nrb_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Dynamic Rigid Body'], entity.EntityType().Game)\n\nfor eid in ids:\n    for type_id in [mesh_types[0], collider_types[0], rb_types[0]]:\n        editor.EditorComponentAPIBus(bus.Broadcast, 'AddComponentOfType', eid, type_id)\n\nprint(f'Added components to {len(ids)} crates')"
   }
 }
 ```
@@ -71,7 +71,7 @@ A trigger zone detects when entities enter/exit without blocking them:
 
 ```json
 {"tool": "create_entity", "arguments": {"name": "GoalZone"}}
-{"tool": "add_component", "arguments": {"entity_id": "<zone_id>", "component_type": "PhysX Collider"}}
+{"tool": "add_component", "arguments": {"entity_id": "<zone_id>", "component_type": "PhysX Primitive Collider"}}
 ```
 
 Configure it as a trigger:
@@ -80,7 +80,7 @@ Configure it as a trigger:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\n\neid = azlmbr.entity.EntityId('<zone_id>')\neditor.EditorComponentAPIBus(bus.Event, 'SetComponentProperty', eid, 'PhysX Collider|IsTrigger', True)\nprint('GoalZone configured as trigger')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\n\neid = azlmbr.entity.EntityId('<zone_id>')\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|IsTrigger', True)\nprint('GoalZone configured as trigger')"
   }
 }
 ```
@@ -90,8 +90,8 @@ Configure it as a trigger:
 ```json
 {"tool": "create_entity", "arguments": {"name": "Ball"}}
 {"tool": "add_component", "arguments": {"entity_id": "<ball_id>", "component_type": "Mesh"}}
-{"tool": "add_component", "arguments": {"entity_id": "<ball_id>", "component_type": "PhysX Collider"}}
-{"tool": "add_component", "arguments": {"entity_id": "<ball_id>", "component_type": "PhysX Rigid Body"}}
+{"tool": "add_component", "arguments": {"entity_id": "<ball_id>", "component_type": "PhysX Primitive Collider"}}
+{"tool": "add_component", "arguments": {"entity_id": "<ball_id>", "component_type": "PhysX Dynamic Rigid Body"}}
 ```
 
 Set the collider shape to sphere and configure restitution for bouncing:
@@ -100,7 +100,7 @@ Set the collider shape to sphere and configure restitution for bouncing:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.components as comp\nimport azlmbr.math as math\n\neid = azlmbr.entity.EntityId('<ball_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(5.0, 0.0, 15.0))\neditor.EditorComponentAPIBus(bus.Event, 'SetComponentProperty', eid, 'PhysX Collider|Shape|Shape Configuration|Sphere', True)\nprint('Ball configured')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.components as comp\nimport azlmbr.math as math\nimport azlmbr.entity as entity\n\neid = azlmbr.entity.EntityId('<ball_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(5.0, 0.0, 15.0))\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|Shape|Shape Configuration|Sphere', True)\nprint('Ball configured')"
   }
 }
 ```
@@ -115,15 +115,15 @@ Set the collider shape to sphere and configure restitution for bouncing:
 {"tool": "get_entity_components", "arguments": {"entity_id": "<crate_id>"}}
 ```
 
-Expected components: `Mesh`, `PhysX Collider`, `PhysX Rigid Body`, `Transform`.
+Expected components: `Mesh`, `PhysX Primitive Collider`, `PhysX Dynamic Rigid Body`, `Transform`.
 
 ## Physics Summary
 
 | Behavior | Components Needed |
 |----------|-------------------|
-| Static (walls, floor) | Mesh + PhysX Collider |
-| Dynamic (crates, balls) | Mesh + PhysX Collider + PhysX Rigid Body |
-| Trigger (zones) | PhysX Collider (IsTrigger=True) |
-| Kinematic (moving platforms) | PhysX Collider + PhysX Rigid Body (Kinematic=True) |
+| Static (walls, floor) | Mesh + PhysX Primitive Collider |
+| Dynamic (crates, balls) | Mesh + PhysX Primitive Collider + PhysX Dynamic Rigid Body |
+| Trigger (zones) | PhysX Primitive Collider (IsTrigger=True) |
+| Kinematic (moving platforms) | PhysX Primitive Collider + PhysX Dynamic Rigid Body (Kinematic=True) |
 
 Next: [Example 4: Scripted Game](04_scripted_game.md)

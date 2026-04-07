@@ -698,13 +698,65 @@ def register_editor_tools(mcp: FastMCP) -> None:
 
             _params = json.loads({params!r})
             eid = entity.EntityId(_params['entity_id'])
-            components = editor.EditorComponentAPIBus(bus.Event, 'GetComponentsOfEntity', eid)
+            gt = entity.EntityType().Game
 
             results = []
-            for comp in components:
-                type_name = editor.EditorComponentAPIBus(bus.Event, 'GetComponentName', comp)
-                results.append({{'component_id': str(comp), 'type': type_name}})
-            print(json.dumps(results))
+            # Try legacy GetComponentsOfEntity first
+            try:
+                components = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'GetComponentsOfEntity', eid
+                )
+                if components is not None and len(components) > 0:
+                    for comp in components:
+                        type_name = editor.EditorComponentAPIBus(
+                            bus.Broadcast, 'GetComponentName', comp
+                        )
+                        results.append({{'component_id': str(comp), 'type': type_name}})
+                    print(json.dumps(results))
+                else:
+                    raise RuntimeError('empty')
+            except Exception:
+                # O3DE 2510+: probe known component types via HasComponentOfType
+                known = [
+                    'Mesh', 'Material', 'Decal', 'SkinnedMesh',
+                    'Directional Light', 'Point Light', 'Spot Light', 'Area Light',
+                    'HDRi Skybox', 'Global Skylight (IBL)', 'Physical Sky',
+                    'PhysX Primitive Collider', 'PhysX Collider',
+                    'PhysX Dynamic Rigid Body', 'PhysX Rigid Body',
+                    'PhysX Static Rigid Body', 'PhysX Mesh Collider',
+                    'PhysX Shape Collider', 'PhysX Character Controller',
+                    'PhysX Force Region',
+                    'Lua Script', 'Script Canvas', 'Camera',
+                    'Actor', 'Anim Graph', 'Simple Motion',
+                    'Box Shape', 'Sphere Shape', 'Capsule Shape',
+                    'Cylinder Shape', 'Axis Aligned Box Shape', 'Spline',
+                    'Audio Trigger', 'Comment',
+                    'Net Binding', 'Network Transform',
+                ]
+                for cn in known:
+                    tids = editor.EditorComponentAPIBus(
+                        bus.Broadcast, 'FindComponentTypeIdsByEntityType', [cn], gt
+                    )
+                    if not tids:
+                        continue
+                    uid = str(tids[0])
+                    if '00000000-0000-0000-0000-000000000000' in uid:
+                        continue
+                    has = editor.EditorComponentAPIBus(
+                        bus.Broadcast, 'HasComponentOfType', eid, tids[0]
+                    )
+                    if has:
+                        comp_id = ''
+                        try:
+                            out = editor.EditorComponentAPIBus(
+                                bus.Broadcast, 'GetComponentOfType', eid, tids[0]
+                            )
+                            if hasattr(out, 'IsSuccess') and out.IsSuccess():
+                                comp_id = str(out.GetValue())
+                        except Exception:
+                            pass
+                        results.append({{'component_id': comp_id, 'type': cn}})
+                print(json.dumps(results))
         """)
         return await _async_run_editor_script(script)
 
@@ -714,7 +766,7 @@ def register_editor_tools(mcp: FastMCP) -> None:
 
         Args:
             entity_id: The entity ID to add the component to.
-            component_type: Component type name (e.g. 'Mesh', 'PhysX Rigid Body').
+            component_type: Component type name (e.g. 'Mesh', 'PhysX Dynamic Rigid Body').
         """
         entity_id = _validate_entity_id(entity_id)
         component_type = _validate_component_type(component_type)
@@ -733,11 +785,29 @@ def register_editor_tools(mcp: FastMCP) -> None:
                 bus.Broadcast, 'FindComponentTypeIdsByEntityType',
                 [comp_type], entity.EntityType().Game
             )
-            if type_ids:
-                editor.EditorComponentAPIBus(bus.Event, 'AddComponentsOfType', eid, type_ids)
-                print(f'Added {{type_ids[0]}} to {{eid}}')
-            else:
+            if not type_ids:
                 print(f'Component type "{{comp_type}}" not found')
+            else:
+                tid = type_ids[0]
+                # O3DE 2510+: AddComponentOfType (singular) via Broadcast
+                try:
+                    outcome = editor.EditorComponentAPIBus(
+                        bus.Broadcast, 'AddComponentOfType', eid, tid
+                    )
+                    if hasattr(outcome, 'IsSuccess'):
+                        if outcome.IsSuccess():
+                            print(f'Added {{comp_type}} to {{eid}}')
+                        else:
+                            err = outcome.GetError() if hasattr(outcome, 'GetError') else 'unknown'
+                            print(f'Failed to add {{comp_type}}: {{err}}')
+                    else:
+                        print(f'Added {{comp_type}} to {{eid}}')
+                except Exception:
+                    # Fallback: legacy AddComponentsOfType via Event bus
+                    editor.EditorComponentAPIBus(
+                        bus.Event, 'AddComponentsOfType', eid, type_ids
+                    )
+                    print(f'Added {{comp_type}} to {{eid}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -751,7 +821,7 @@ def register_editor_tools(mcp: FastMCP) -> None:
             entity_id: The entity ID.
             component_type: Component type name (e.g. 'Transform').
             property_path: Property path using '|' separator
-                           (e.g. 'Transform|Translate').
+                           (e.g. 'Controller|Configuration|Model Asset').
         """
         entity_id = _validate_entity_id(entity_id)
         component_type = _validate_component_type(component_type)
@@ -770,9 +840,40 @@ def register_editor_tools(mcp: FastMCP) -> None:
 
             _params = json.loads({params!r})
             eid = entity.EntityId(_params['entity_id'])
-            value = editor.EditorComponentAPIBus(
-                bus.Event, 'GetComponentProperty', eid, _params['property_path']
+
+            value = None
+            # O3DE 2510+: resolve EntityComponentIdPair, then get property
+            type_ids = editor.EditorComponentAPIBus(
+                bus.Broadcast, 'FindComponentTypeIdsByEntityType',
+                [_params['component_type']], entity.EntityType().Game
             )
+            try:
+                if type_ids:
+                    outcome = editor.EditorComponentAPIBus(
+                        bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
+                    )
+                    if hasattr(outcome, 'IsSuccess') and outcome.IsSuccess():
+                        pair = outcome.GetValue()
+                        prop = editor.EditorComponentAPIBus(
+                            bus.Broadcast, 'GetComponentProperty', pair,
+                            _params['property_path']
+                        )
+                        if hasattr(prop, 'IsSuccess') and prop.IsSuccess():
+                            value = prop.GetValue()
+                        elif hasattr(prop, 'IsSuccess'):
+                            value = None
+                        else:
+                            value = prop
+                    else:
+                        raise RuntimeError('GetComponentOfType failed')
+                else:
+                    raise RuntimeError('type not found')
+            except Exception:
+                # Fallback: legacy API with bare EntityId
+                value = editor.EditorComponentAPIBus(
+                    bus.Event, 'GetComponentProperty', eid,
+                    _params['property_path']
+                )
             print(json.dumps({{'property': _params['property_path'], 'value': str(value)}}))
         """)
         return await _async_run_editor_script(script)
@@ -787,7 +888,7 @@ def register_editor_tools(mcp: FastMCP) -> None:
             entity_id: The entity ID.
             component_type: Component type name (e.g. 'Transform').
             property_path: Property path using '|' separator
-                           (e.g. 'PhysX Collider|IsTrigger').
+                           (e.g. 'Controller|Configuration|Model Asset').
             value: The value to set (as a string — booleans as 'true'/'false',
                    numbers as their string representation).
         """
@@ -822,10 +923,35 @@ def register_editor_tools(mcp: FastMCP) -> None:
                 except ValueError:
                     val = raw
 
-            result = editor.EditorComponentAPIBus(
-                bus.Event, 'SetComponentProperty', eid, _params['property_path'], val
+            # O3DE 2510+: resolve EntityComponentIdPair, then set property
+            type_ids = editor.EditorComponentAPIBus(
+                bus.Broadcast, 'FindComponentTypeIdsByEntityType',
+                [_params['component_type']], entity.EntityType().Game
             )
-            print(f'Set {{_params["property_path"]}} = {{val}} (result={{result}})')
+            success = False
+            try:
+                if type_ids:
+                    outcome = editor.EditorComponentAPIBus(
+                        bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
+                    )
+                    if hasattr(outcome, 'IsSuccess') and outcome.IsSuccess():
+                        pair = outcome.GetValue()
+                        result = editor.EditorComponentAPIBus(
+                            bus.Broadcast, 'SetComponentProperty', pair,
+                            _params['property_path'], val
+                        )
+                        print(f'Set {{_params["property_path"]}} = {{val}} (result={{result}})')
+                        success = True
+            except Exception:
+                pass
+
+            if not success:
+                # Fallback: legacy API with bare EntityId
+                result = editor.EditorComponentAPIBus(
+                    bus.Event, 'SetComponentProperty', eid,
+                    _params['property_path'], val
+                )
+                print(f'Set {{_params["property_path"]}} = {{val}} (result={{result}})')
         """)
         return await _async_run_editor_script(script)
 

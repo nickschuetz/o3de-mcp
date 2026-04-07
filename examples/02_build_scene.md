@@ -55,7 +55,7 @@ Capture the returned entity ID, then:
 {"tool": "create_entity", "arguments": {"name": "Ground"}}
 {"tool": "add_component", "arguments": {"entity_id": "<ground_id>", "component_type": "Mesh"}}
 {"tool": "add_component", "arguments": {"entity_id": "<ground_id>", "component_type": "Material"}}
-{"tool": "add_component", "arguments": {"entity_id": "<ground_id>", "component_type": "PhysX Collider"}}
+{"tool": "add_component", "arguments": {"entity_id": "<ground_id>", "component_type": "PhysX Primitive Collider"}}
 ```
 
 Set the ground mesh and scale via script:
@@ -93,7 +93,7 @@ Position the camera:
 {"tool": "create_entity", "arguments": {"name": "Building_01"}}
 {"tool": "add_component", "arguments": {"entity_id": "<bldg_id>", "component_type": "Mesh"}}
 {"tool": "add_component", "arguments": {"entity_id": "<bldg_id>", "component_type": "Material"}}
-{"tool": "add_component", "arguments": {"entity_id": "<bldg_id>", "component_type": "PhysX Collider"}}
+{"tool": "add_component", "arguments": {"entity_id": "<bldg_id>", "component_type": "PhysX Primitive Collider"}}
 ```
 
 ### 8. Verify the scene
@@ -108,7 +108,7 @@ Expected: `Environment`, `Sun`, `Ground`, `PlayerCamera`, `Building_01`.
 {"tool": "get_entity_components", "arguments": {"entity_id": "<ground_id>"}}
 ```
 
-Expected: `Mesh`, `Material`, `PhysX Collider`, `Transform`.
+Expected: `Mesh`, `Material`, `PhysX Primitive Collider`, `Transform`.
 
 ## Result
 

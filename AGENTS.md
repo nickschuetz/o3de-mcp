@@ -59,7 +59,7 @@ once and reuse it:
 ```python
 mesh_t = FindComponentTypeIdsByEntityType(['Mesh'], Game)  # once
 for eid in entity_ids:
-    AddComponentsOfType(eid, mesh_t)  # reuse
+    AddComponentOfType(eid, mesh_t[0])  # reuse
 ```
 
 ### 4. Combine create + configure
@@ -76,7 +76,7 @@ Use these exact strings with `add_component`:
 | Rendering | `Mesh`, `Material`, `Decal` |
 | Lighting | `Directional Light`, `Point Light`, `Spot Light`, `Area Light` |
 | Sky | `HDRi Skybox`, `Global Skylight (IBL)` |
-| Physics | `PhysX Collider`, `PhysX Rigid Body`, `PhysX Character Controller` |
+| Physics | `PhysX Primitive Collider`, `PhysX Dynamic Rigid Body`, `PhysX Character Controller` |
 | Scripting | `Lua Script`, `Script Canvas` |
 | Camera | `Camera` |
 | Animation | `Actor`, `Anim Graph`, `Simple Motion` |
@@ -87,9 +87,9 @@ Full catalog: [docs/components.md](docs/components.md)
 ## Common Entity Patterns
 
 ```
-Static prop     = Mesh + Material + PhysX Collider
-Dynamic object  = Mesh + Material + PhysX Collider + PhysX Rigid Body
-Trigger zone    = PhysX Collider (IsTrigger=True)
+Static prop     = Mesh + Material + PhysX Primitive Collider
+Dynamic object  = Mesh + Material + PhysX Primitive Collider + PhysX Dynamic Rigid Body
+Trigger zone    = PhysX Primitive Collider (IsTrigger=True)
 Character       = Actor + Anim Graph + PhysX Character Controller
 Environment     = HDRi Skybox + Global Skylight (IBL)
 ```
