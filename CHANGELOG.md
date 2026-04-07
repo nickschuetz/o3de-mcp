@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-07
+
 ### Added
 
 - **AgentServer protocol support**: Length-prefixed JSON framing for communication
@@ -18,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     with valid JSON.
 - **TLS client support**: Optional encrypted connections via `O3DE_EDITOR_TLS`,
   `O3DE_EDITOR_TLS_VERIFY`, and `O3DE_EDITOR_TLS_CA` env vars.
+- **Architecture documentation**: System diagram (Mermaid) and communication flow
+  documentation in `docs/architecture.md`.
 
 ### Changed
 
@@ -25,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dispatching to framed or legacy protocol based on auto-detection.
 - Updated capability probe hint to reference AiCompanion instead of RemoteConsole.
 - Error messages now reference AiCompanion AgentServer instead of RemoteConsole.
+- README now links to [o3de-ai-companion-gem](https://github.com/nschuetz/o3de-ai-companion-gem)
+  and [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html)
+  documentation. Added Related Projects section.
 
 ### Fixed
 

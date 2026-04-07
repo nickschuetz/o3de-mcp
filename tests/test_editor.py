@@ -9,7 +9,7 @@ import asyncio
 import base64
 import json
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -266,6 +266,7 @@ class TestFramedProtocol:
         data = _build_framed_request("ping", request_id="test-id")
         # First 4 bytes are big-endian length
         import struct
+
         length = struct.unpack(">I", data[:4])[0]
         body = json.loads(data[4:])
         assert body["id"] == "test-id"
@@ -275,6 +276,7 @@ class TestFramedProtocol:
     def test_build_framed_request_execute_python(self) -> None:
         data = _build_framed_request("execute_python", script="print('hi')", request_id="exec-1")
         import struct
+
         length = struct.unpack(">I", data[:4])[0]
         body = json.loads(data[4:])
         assert body["type"] == "execute_python"

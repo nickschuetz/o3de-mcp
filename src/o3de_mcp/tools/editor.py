@@ -206,9 +206,7 @@ def _recv_framed(sock: socket.socket, timeout: float) -> dict:
     return json.loads(body.decode("utf-8"))
 
 
-async def _async_recv_framed(
-    reader: asyncio.StreamReader, timeout: float
-) -> dict:
+async def _async_recv_framed(reader: asyncio.StreamReader, timeout: float) -> dict:
     """Read a length-prefixed JSON response from an async reader."""
     header = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
     length = struct.unpack(">I", header)[0]
@@ -335,7 +333,7 @@ def _send_editor_command(
 # Protocol enum
 _PROTO_UNKNOWN = 0
 _PROTO_AGENT_SERVER = 1  # length-prefixed JSON (AiCompanion AgentServer)
-_PROTO_LEGACY = 2        # raw text (RemoteConsole)
+_PROTO_LEGACY = 2  # raw text (RemoteConsole)
 
 
 class _EditorConnectionPool:
@@ -400,13 +398,9 @@ class _EditorConnectionPool:
                 reader, writer = await self._ensure_connected(host, port, timeout)
 
                 if self._protocol == _PROTO_AGENT_SERVER:
-                    return await self._send_framed_script(
-                        reader, writer, script, timeout
-                    )
+                    return await self._send_framed_script(reader, writer, script, timeout)
                 else:
-                    return await self._send_legacy_script(
-                        reader, writer, script, timeout
-                    )
+                    return await self._send_legacy_script(reader, writer, script, timeout)
 
             except (
                 ConnectionRefusedError,
