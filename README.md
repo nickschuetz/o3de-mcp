@@ -87,6 +87,22 @@ Add to your Claude Desktop config:
 }
 ```
 
+### Testing with MCP Inspector
+
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) provides a web UI for interactively testing tools without an AI assistant. Useful for verifying tool behavior, inspecting responses, and debugging.
+
+```bash
+npx @modelcontextprotocol/inspector o3de-mcp
+```
+
+This opens the Inspector UI at `http://localhost:6274`. From there you can browse all registered tools, invoke them with custom parameters, and see raw responses.
+
+To pass environment variables (e.g., a custom engine path or editor port):
+
+```bash
+npx @modelcontextprotocol/inspector -e O3DE_ENGINE_PATH=/path/to/engine -e O3DE_EDITOR_PORT=4600 o3de-mcp
+```
+
 ## Development
 
 ```bash
@@ -150,6 +166,7 @@ Progressive walkthroughs from project creation to a complete game:
 5. [Batch Operations](examples/05_batch_operations.md) — efficient bulk entity creation patterns
 6. [CLI-Only Workflow](examples/06_cli_only_workflow.md) — project management without the editor
 7. [Gem Development](examples/07_gem_development.md) — create and integrate custom gems
+8. [MCP Inspector](examples/08_mcp_inspector.md) — interactively test tools via a web UI
 
 ## Configuration
 

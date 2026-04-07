@@ -22,8 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `O3DE_EDITOR_TLS_VERIFY`, and `O3DE_EDITOR_TLS_CA` env vars.
 - **Architecture documentation**: System diagram (Mermaid) and communication flow
   documentation in `docs/architecture.md`.
+- **MCP Inspector example** (`examples/08_mcp_inspector.md`): Walkthrough for
+  interactively testing tools via the MCP Inspector web UI.
 
 ### Changed
+
+- Updated project description to lead with value proposition:
+  "Automate Open 3D Engine with AI."
+- README now includes an MCP Inspector section under Usage.
 
 - `_EditorConnectionPool` now uses `send_script()` (was `send_command()`),
   dispatching to framed or legacy protocol based on auto-detection.
