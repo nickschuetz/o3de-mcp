@@ -24,13 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documentation in `docs/architecture.md`.
 - **MCP Inspector example** (`examples/08_mcp_inspector.md`): Walkthrough for
   interactively testing tools via the MCP Inspector web UI.
+- **Server version reporting**: MCP server now reports the actual package version
+  (from `importlib.metadata`) instead of a default. Falls back to `0.0.0-dev`
+  when the package is not installed.
 
 ### Changed
 
 - Updated project description to lead with value proposition:
   "Automate Open 3D Engine with AI."
 - README now includes an MCP Inspector section under Usage.
-
 - `_EditorConnectionPool` now uses `send_script()` (was `send_command()`),
   dispatching to framed or legacy protocol based on auto-detection.
 - Updated capability probe hint to reference AiCompanion instead of RemoteConsole.

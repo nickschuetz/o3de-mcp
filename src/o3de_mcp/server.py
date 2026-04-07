@@ -7,16 +7,24 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 from mcp.server.fastmcp import FastMCP
 
 from o3de_mcp.tools.capabilities import register_capabilities_tools
 from o3de_mcp.tools.editor import register_editor_tools
 from o3de_mcp.tools.project import register_project_tools
 
+try:
+    __version__ = version("o3de-mcp")
+except PackageNotFoundError:
+    __version__ = "0.0.0-dev"
+
 mcp = FastMCP(
     "o3de-mcp",
     instructions="MCP server for Open 3D Engine — editor automation and project management",
 )
+mcp._mcp_server.version = __version__
 
 register_capabilities_tools(mcp)
 register_editor_tools(mcp)
