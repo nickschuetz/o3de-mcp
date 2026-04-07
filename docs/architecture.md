@@ -6,7 +6,7 @@ This document describes the high-level architecture of **o3de-mcp** — an MCP s
 
 o3de-mcp exposes O3DE capabilities through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling AI assistants (Claude Code, Claude Desktop, or any MCP-compatible client) to automate the O3DE Editor and manage projects, gems, and builds.
 
-Editor communication relies on the [**o3de-ai-companion-gem**](https://github.com/nschuetz/o3de-ai-companion-gem) — an O3DE Gem that runs an AgentServer inside the editor, accepting Python script execution requests over a length-prefixed JSON protocol. The gem also bundles [**EditorPythonBindings**](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) support, giving scripts access to the full `azlmbr` API.
+Editor communication relies on the [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) — an O3DE Gem that runs an AgentServer inside the editor, accepting Python script execution requests over a length-prefixed JSON protocol. The gem also bundles [**EditorPythonBindings**](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) support, giving scripts access to the full `azlmbr` API.
 
 ## Diagram
 
@@ -74,7 +74,7 @@ graph LR
 MCP Client → o3de-mcp → TCP :4600 → AiCompanion AgentServer → azlmbr API
 ```
 
-The [**o3de-ai-companion-gem**](https://github.com/nschuetz/o3de-ai-companion-gem) provides the AgentServer that listens on port 4600. o3de-mcp auto-detects the protocol on connection:
+The [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) provides the AgentServer that listens on port 4600. o3de-mcp auto-detects the protocol on connection:
 
 1. **AgentServer protocol** (preferred) — length-prefixed JSON framing with request/response semantics.
 2. **Legacy RemoteConsole** (fallback) — raw text `pyRunScript` commands for older setups without the companion gem.
@@ -110,5 +110,5 @@ Always call `get_capabilities()` first to determine which tool categories are av
 
 ## Related Projects
 
-- [**o3de-ai-companion-gem**](https://github.com/nschuetz/o3de-ai-companion-gem) — The O3DE Gem that enables editor-side communication. Provides the AgentServer that o3de-mcp connects to for real-time editor automation. Must be enabled in your O3DE project alongside [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) for editor tools to work.
+- [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) — The O3DE Gem that enables editor-side communication. Provides the AgentServer that o3de-mcp connects to for real-time editor automation. Must be enabled in your O3DE project alongside [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) for editor tools to work.
 - [**O3DE (Open 3D Engine)**](https://github.com/o3de/o3de) — The game engine itself.

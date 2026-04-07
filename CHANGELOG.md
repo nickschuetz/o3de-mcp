@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dispatching to framed or legacy protocol based on auto-detection.
 - Updated capability probe hint to reference AiCompanion instead of RemoteConsole.
 - Error messages now reference AiCompanion AgentServer instead of RemoteConsole.
-- README now links to [o3de-ai-companion-gem](https://github.com/nschuetz/o3de-ai-companion-gem)
+- README now links to [o3de-ai-companion-gem](https://github.com/nickschuetz/o3de-ai-companion-gem)
   and [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html)
   documentation. Added Related Projects section.
 

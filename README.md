@@ -35,7 +35,7 @@ See the [architecture documentation](docs/architecture.md) for a detailed system
 - O3DE installed and registered (engine path in the O3DE manifest or `O3DE_ENGINE_PATH` env var)
   - **Linux/macOS:** `~/.o3de/o3de_manifest.json`
   - **Windows:** `%USERPROFILE%\.o3de\o3de_manifest.json`
-- For editor tools (optional): O3DE Editor running with the [**o3de-ai-companion-gem**](https://github.com/nschuetz/o3de-ai-companion-gem) and **EditorPythonBindings** gems enabled. The companion gem provides the AgentServer that o3de-mcp connects to for real-time editor automation. Project tools work without the editor — call `get_capabilities()` to check what's available.
+- For editor tools (optional): O3DE Editor running with the [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) and **EditorPythonBindings** gems enabled. The companion gem provides the AgentServer that o3de-mcp connects to for real-time editor automation. Project tools work without the editor — call `get_capabilities()` to check what's available.
 
 ## Installation
 
@@ -170,7 +170,7 @@ The server also reads the O3DE manifest for registered engines, projects, and ge
 
 ## Related Projects
 
-- [**o3de-ai-companion-gem**](https://github.com/nschuetz/o3de-ai-companion-gem) — O3DE Gem that provides the AgentServer for editor-side communication. Required for editor automation tools. Enable it alongside [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) in your O3DE project.
+- [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) — O3DE Gem that provides the AgentServer for editor-side communication. Required for editor automation tools. Enable it alongside [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) in your O3DE project.
 - [**O3DE (Open 3D Engine)**](https://github.com/o3de/o3de) — The open-source game engine.
 
 ## License
