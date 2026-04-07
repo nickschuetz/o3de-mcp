@@ -50,6 +50,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mypy type errors**: Added explicit type annotations to framed protocol
   helpers (`_recv_framed`, `_async_recv_framed`) and `str()` casts for
   `json.loads` return values in editor tools.
+- **O3DE 2510+ API compatibility**: Editor tools now work with the updated
+  EditorComponentAPIBus API in O3DE 2510+, with backward-compatible fallbacks.
+  - `add_component`: Uses `AddComponentOfType` (singular) via `bus.Broadcast`
+    with `Outcome` checking; falls back to legacy `AddComponentsOfType`.
+  - `get_entity_components`: Probe-based `HasComponentOfType` approach replaces
+    `GetComponentsOfEntity` which returns `None` in 2510+.
+  - `get_component_property` / `set_component_property`: Resolve
+    `EntityComponentIdPair` via `GetComponentOfType` before accessing
+    properties; falls back to legacy bare `EntityId` approach.
+- **PhysX component names**: Updated all documentation and examples to use
+  O3DE 2510+ names (`PhysX Primitive Collider`, `PhysX Dynamic Rigid Body`).
+- **Mesh property path**: Corrected `Mesh|Model Asset` to
+  `Controller|Configuration|Model Asset` in documentation.
+- **Inline script patterns**: All `run_editor_python` examples in docs now
+  use `AddComponentOfType` (singular) with `bus.Broadcast` and
+  `EntityComponentIdPair` for property access.
 
 ## [0.2.0] - 2026-04-03
 
