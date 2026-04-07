@@ -2,7 +2,9 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg)](LICENSE.txt)
 
-An [MCP](https://modelcontextprotocol.io) server that exposes [Open 3D Engine (O3DE)](https://o3de.org) capabilities to AI assistants — editor automation, project management, and build orchestration.
+An [MCP](https://modelcontextprotocol.io) server that exposes [Open 3D Engine (O3DE)](https://o3de.org) capabilities to AI agents and assistants — editor automation, project management, and build orchestration.
+
+See the [architecture documentation](docs/architecture.md) for a detailed system diagram and communication flow.
 
 ## Features
 
@@ -33,7 +35,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes [Open 3D Engine (O
 - O3DE installed and registered (engine path in the O3DE manifest or `O3DE_ENGINE_PATH` env var)
   - **Linux/macOS:** `~/.o3de/o3de_manifest.json`
   - **Windows:** `%USERPROFILE%\.o3de\o3de_manifest.json`
-- For editor tools (optional): O3DE Editor running with **RemoteConsole** and **EditorPythonBindings** gems enabled. Project tools work without the editor — call `get_capabilities()` to check what's available.
+- For editor tools (optional): O3DE Editor running with the [**o3de-ai-companion-gem**](https://github.com/nschuetz/o3de-ai-companion-gem) and **EditorPythonBindings** gems enabled. The companion gem provides the AgentServer that o3de-mcp connects to for real-time editor automation. Project tools work without the editor — call `get_capabilities()` to check what's available.
 
 ## Installation
 
@@ -132,6 +134,7 @@ GitHub Actions runs lint, type checking, tests, and SBOM generation on every pus
 | Document | Audience | Description |
 |----------|----------|-------------|
 | [AGENTS.md](AGENTS.md) | AI agents | Token-efficient usage guide, decision trees, error handling |
+| [docs/architecture.md](docs/architecture.md) | Developers & agents | System architecture diagram and communication flows |
 | [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all tools |
 | [docs/recipes.md](docs/recipes.md) | Agents & developers | Composable patterns for scenes, physics, lighting, scripting |
 | [docs/components.md](docs/components.md) | Agents & developers | O3DE component name catalog with dependency chains |
@@ -165,12 +168,13 @@ The server also reads the O3DE manifest for registered engines, projects, and ge
 - **Linux/macOS:** `~/.o3de/o3de_manifest.json`
 - **Windows:** `%USERPROFILE%\.o3de\o3de_manifest.json`
 
+## Related Projects
+
+- [**o3de-ai-companion-gem**](https://github.com/nschuetz/o3de-ai-companion-gem) — O3DE Gem that provides the AgentServer for editor-side communication. Required for editor automation tools. Enable it alongside [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) in your O3DE project.
+- [**O3DE (Open 3D Engine)**](https://github.com/o3de/o3de) — The open-source game engine.
+
 ## License
 
 This project is dual-licensed under [Apache 2.0](LICENSE-APACHE2.txt) or [MIT](LICENSE-MIT.txt) (your choice), matching the [O3DE engine license](https://github.com/o3de/o3de/blob/development/LICENSE.txt). Free for commercial and non-commercial use.
 
 `SPDX-License-Identifier: Apache-2.0 OR MIT`
-
----
-
-Built with assistance from [Claude Code](https://claude.ai/code).
