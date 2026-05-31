@@ -238,9 +238,7 @@ def get_bus_schema(
         buses = [entry for entry in buses if entry["name"] == bus]
         if not buses:
             names = ", ".join(entry["name"] for entry in parse_stub(stub_path.read_text()))
-            raise LookupError(
-                f"No bus '{bus}' in module '{module}'. Buses: {names or '(none)'}."
-            )
+            raise LookupError(f"No bus '{bus}' in module '{module}'. Buses: {names or '(none)'}.")
 
     return {
         "module": module,
