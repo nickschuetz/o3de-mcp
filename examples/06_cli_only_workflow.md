@@ -1,16 +1,16 @@
 # Example 6: CLI-Only Workflow (No Editor)
 
-Working with o3de-mcp when the O3DE Editor is not running or the RemoteConsole
-gem is unavailable. This covers project management, gem creation, builds, and
-export — all via CLI tools.
+Working with o3de-mcp when the O3DE Editor is not running or the AiCompanion
+gem is not enabled. This covers project management, gem creation, builds, and
+export. All operations are done via CLI tools.
 
 ## Prerequisites
 
 - O3DE engine installed and registered
 - `o3de-mcp` server running
 
-> **Note:** The RemoteConsole gem is not included in official O3DE releases.
-> This example shows everything you can do without it.
+> **Note:** This example shows everything you can do without a running editor
+> and without the AiCompanion gem enabled.
 
 ## Steps
 
@@ -28,7 +28,7 @@ export — all via CLI tools.
     "status": "unreachable",
     "host": "127.0.0.1",
     "port": 4600,
-    "hint": "Start the O3DE Editor with RemoteConsole and EditorPythonBindings gems enabled."
+    "hint": "Start the O3DE Editor with the AiCompanion and EditorPythonBindings gems enabled."
   },
   "cli": {
     "available": true,
@@ -158,5 +158,5 @@ If you added a gem that isn't needed:
 
 ## What's Next
 
-- Launch the O3DE Editor with RemoteConsole + EditorPythonBindings gems
+- Launch the O3DE Editor with AiCompanion + EditorPythonBindings gems
 - Use the editor tools for scene construction: [Example 2](02_build_scene.md)

@@ -6,7 +6,7 @@ Add dynamic physics objects to a scene — crates, balls, and trigger zones.
 
 - Scene from [Example 2](02_build_scene.md) or any level with a ground plane
 - PhysX gem enabled in the project
-- O3DE Editor running with RemoteConsole + EditorPythonBindings gems
+- O3DE Editor running with AiCompanion + EditorPythonBindings gems
 
 > **Editor required:** Call `get_capabilities()` first to verify editor
 > connectivity.
@@ -28,7 +28,7 @@ Position it above the ground so it falls when play mode starts:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.math as math\n\neid = azlmbr.entity.EntityId('<crate_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 10.0))"
+    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<crate_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 10.0))"
   }
 }
 ```
@@ -41,7 +41,7 @@ More efficient than individual calls — a single `run_editor_python`:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.components as comp\nimport azlmbr.math as math\nimport json\n\nparent = azlmbr.entity.EntityId()\nresults = []\nfor i in range(5):\n    eid = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)\n    editor.EditorEntityAPIBus(bus.Event, 'SetName', eid, f'StackCrate_{i:02d}')\n    comp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 1.0 + i * 1.1))\n    results.append({'name': f'StackCrate_{i:02d}', 'id': str(eid)})\nprint(json.dumps(results))"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.components as comp\nimport azlmbr.entity as entity\nimport azlmbr.math as math\nimport json\n\nparent = entity.EntityId()\nresults = []\nfor i in range(5):\n    eid = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)\n    editor.EditorEntityAPIBus(bus.Event, 'SetName', eid, f'StackCrate_{i:02d}')\n    comp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 1.0 + i * 1.1))\n    results.append({'name': f'StackCrate_{i:02d}', 'id': str(eid)})\nprint(json.dumps(results))"
   }
 }
 ```
@@ -80,7 +80,7 @@ Configure it as a trigger:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\n\neid = azlmbr.entity.EntityId('<zone_id>')\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|IsTrigger', True)\nprint('GoalZone configured as trigger')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\n\neid = entity.EntityId('<zone_id>')\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|IsTrigger', True)\nprint('GoalZone configured as trigger')"
   }
 }
 ```
@@ -100,7 +100,7 @@ Set the collider shape to sphere and configure restitution for bouncing:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.components as comp\nimport azlmbr.math as math\nimport azlmbr.entity as entity\n\neid = azlmbr.entity.EntityId('<ball_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(5.0, 0.0, 15.0))\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|Shape|Shape Configuration|Sphere', True)\nprint('Ball configured')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.components as comp\nimport azlmbr.math as math\nimport azlmbr.entity as entity\n\neid = entity.EntityId('<ball_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(5.0, 0.0, 15.0))\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|Shape|Shape Configuration|Sphere', True)\nprint('Ball configured')"
   }
 }
 ```

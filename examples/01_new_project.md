@@ -71,16 +71,21 @@ Project 'SpaceExplorer' created at <your_projects_dir>/SpaceExplorer
 
 ### 4. Enable required gems
 
-The editor tools require RemoteConsole and EditorPythonBindings. Enable them
-along with any gameplay gems you need:
+The editor tools talk to the editor through the AiCompanion AgentServer,
+which runs inside the editor process. The AgentServer requires the
+`AiCompanion` and `EditorPythonBindings` gems. Enable both, along with any
+gameplay gems you need:
 
 **Tool calls (sequential):**
 ```json
-{"tool": "enable_gem", "arguments": {"gem_name": "RemoteConsole", "project_path": "<your_projects_dir>/SpaceExplorer"}}
+{"tool": "enable_gem", "arguments": {"gem_name": "AiCompanion", "project_path": "<your_projects_dir>/SpaceExplorer"}}
 {"tool": "enable_gem", "arguments": {"gem_name": "EditorPythonBindings", "project_path": "<your_projects_dir>/SpaceExplorer"}}
 {"tool": "enable_gem", "arguments": {"gem_name": "PhysX", "project_path": "<your_projects_dir>/SpaceExplorer"}}
 {"tool": "enable_gem", "arguments": {"gem_name": "Stars", "project_path": "<your_projects_dir>/SpaceExplorer"}}
 ```
+
+> `AiCompanion` must be registered first if it isn't already. From the
+> repository root: `o3de register --gem-path /path/to/o3de-ai-companion-gem`.
 
 ### 5. Build the project
 

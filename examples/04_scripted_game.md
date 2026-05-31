@@ -7,7 +7,7 @@ ball must reach a goal zone while crates fall from above.
 
 - Scene with ground, camera, and lighting (from Examples 2-3)
 - PhysX and Lua Script gems enabled
-- O3DE Editor running with RemoteConsole + EditorPythonBindings gems
+- O3DE Editor running with AiCompanion + EditorPythonBindings gems
 
 > **Editor required:** Call `get_capabilities()` first to verify editor
 > connectivity.
@@ -30,7 +30,7 @@ Position and configure the player:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.math as math\n\neid = azlmbr.entity.EntityId('<player_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 1.0))\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(0.5, 0.5, 0.5))\nprint('Player positioned')"
+    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<player_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 1.0))\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(0.5, 0.5, 0.5))\nprint('Player positioned')"
   }
 }
 ```
@@ -49,7 +49,7 @@ Position and make it a trigger:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = azlmbr.entity.EntityId('<goal_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(20.0, 0.0, 0.5))\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(3.0, 3.0, 1.0))\ncol_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)[0]\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, col_t)\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'IsTrigger', True)\nprint('Goal zone configured')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<goal_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(20.0, 0.0, 0.5))\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(3.0, 3.0, 1.0))\ncol_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)[0]\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, col_t)\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'IsTrigger', True)\nprint('Goal zone configured')"
   }
 }
 ```
@@ -68,7 +68,7 @@ Create spawn points as children:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.math as math\nimport json\n\nparent = azlmbr.entity.EntityId('<spawners_id>')\npositions = [\n    (5.0, 0.0, 20.0),\n    (10.0, 2.0, 22.0),\n    (15.0, -2.0, 18.0),\n    (8.0, 3.0, 25.0),\n]\nresults = []\nfor i, (x, y, z) in enumerate(positions):\n    eid = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)\n    editor.EditorEntityAPIBus(bus.Event, 'SetName', eid, f'Spawner_{i:02d}')\n    comp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(x, y, z))\n    results.append({'name': f'Spawner_{i:02d}', 'id': str(eid)})\nprint(json.dumps(results))"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\nimport json\n\nparent = entity.EntityId('<spawners_id>')\npositions = [\n    (5.0, 0.0, 20.0),\n    (10.0, 2.0, 22.0),\n    (15.0, -2.0, 18.0),\n    (8.0, 3.0, 25.0),\n]\nresults = []\nfor i, (x, y, z) in enumerate(positions):\n    eid = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)\n    editor.EditorEntityAPIBus(bus.Event, 'SetName', eid, f'Spawner_{i:02d}')\n    comp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(x, y, z))\n    results.append({'name': f'Spawner_{i:02d}', 'id': str(eid)})\nprint(json.dumps(results))"
   }
 }
 ```
@@ -81,7 +81,7 @@ Batch-create crates at spawner positions:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.components as comp\nimport azlmbr.math as math\nimport json\n\nparent = azlmbr.entity.EntityId()\npositions = [\n    (5.0, 0.0, 20.0),\n    (10.0, 2.0, 22.0),\n    (15.0, -2.0, 18.0),\n    (8.0, 3.0, 25.0),\n]\nmesh_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['Mesh'], entity.EntityType().Game)[0]\ncol_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)[0]\nrb_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Dynamic Rigid Body'], entity.EntityType().Game)[0]\nresults = []\nfor i, (x, y, z) in enumerate(positions):\n    eid = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)\n    name = f'FallingCrate_{i:02d}'\n    editor.EditorEntityAPIBus(bus.Event, 'SetName', eid, name)\n    comp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(x, y, z))\n    # Add physics components\n    for tid in [mesh_t, col_t, rb_t]:\n        editor.EditorComponentAPIBus(bus.Broadcast, 'AddComponentOfType', eid, tid)\n    results.append({'name': name, 'id': str(eid)})\nprint(json.dumps(results))"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.components as comp\nimport azlmbr.math as math\nimport json\n\nparent = entity.EntityId()\npositions = [\n    (5.0, 0.0, 20.0),\n    (10.0, 2.0, 22.0),\n    (15.0, -2.0, 18.0),\n    (8.0, 3.0, 25.0),\n]\nmesh_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['Mesh'], entity.EntityType().Game)[0]\ncol_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)[0]\nrb_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Dynamic Rigid Body'], entity.EntityType().Game)[0]\nresults = []\nfor i, (x, y, z) in enumerate(positions):\n    eid = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)\n    name = f'FallingCrate_{i:02d}'\n    editor.EditorEntityAPIBus(bus.Event, 'SetName', eid, name)\n    comp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(x, y, z))\n    # Add physics components\n    for tid in [mesh_t, col_t, rb_t]:\n        editor.EditorComponentAPIBus(bus.Broadcast, 'AddComponentOfType', eid, tid)\n    results.append({'name': name, 'id': str(eid)})\nprint(json.dumps(results))"
   }
 }
 ```
@@ -106,7 +106,7 @@ Position behind and above the player:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.math as math\n\neid = azlmbr.entity.EntityId('<cam_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, -8.0, 6.0))\nprint('Camera positioned')"
+    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<cam_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, -8.0, 6.0))\nprint('Camera positioned')"
   }
 }
 ```

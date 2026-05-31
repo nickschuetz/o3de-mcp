@@ -6,7 +6,7 @@ static geometry — all through MCP tool calls.
 ## Prerequisites
 
 - O3DE Editor running with your project loaded
-- RemoteConsole and EditorPythonBindings gems active
+- AiCompanion and EditorPythonBindings gems active
 
 > **Editor required:** These tools need a running editor. Call
 > `get_capabilities()` first to verify the editor is connected. If it's
@@ -64,7 +64,7 @@ Set the ground mesh and scale via script:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.math as math\n\neid = azlmbr.entity.EntityId('<ground_id>')\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(50.0, 50.0, 1.0))"
+    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<ground_id>')\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(50.0, 50.0, 1.0))"
   }
 }
 ```
@@ -82,7 +82,7 @@ Position the camera:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.math as math\n\neid = azlmbr.entity.EntityId('<cam_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, -10.0, 5.0))"
+    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<cam_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, -10.0, 5.0))"
   }
 }
 ```

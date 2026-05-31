@@ -12,7 +12,7 @@ See the [architecture documentation](docs/architecture.md) for a detailed system
 - `get_capabilities` — check editor connectivity and CLI availability before using other tools
 - Dynamic tool discovery — new tools are automatically reported
 
-**Editor Automation** (requires a running O3DE Editor with RemoteConsole gem):
+**Editor Automation** (requires a running O3DE Editor with the AiCompanion + EditorPythonBindings gems):
 - Execute arbitrary Python scripts inside the editor (`azlmbr` API)
 - List, create, delete, and duplicate entities
 - Add components, get/set component properties

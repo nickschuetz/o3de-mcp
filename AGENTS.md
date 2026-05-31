@@ -20,9 +20,10 @@ Need to test gameplay?           → enter_game_mode / exit_game_mode
 Made a mistake?                  → undo / redo
 ```
 
-> **Important:** The RemoteConsole gem required for editor tools is not included
-> in official O3DE releases. Always call `get_capabilities()` first to determine
-> what is available. If the editor is unreachable, focus on project tools.
+> **Important:** Editor tools require the `AiCompanion` and
+> `EditorPythonBindings` gems enabled in the project, with the editor running.
+> Always call `get_capabilities()` first to determine what is available. If the
+> editor is unreachable, focus on project tools.
 
 ## Token Efficiency Rules
 
@@ -102,7 +103,7 @@ Minimal sequence to go from nothing to a playable scene:
 0. get_capabilities()                        ← check what's available
 1. list_templates()                          ← discover available templates
 2. create_project(name, path)
-3. enable_gem("RemoteConsole", path)         ← required for editor tools
+3. enable_gem("AiCompanion", path)           ← required for editor tools
 4. enable_gem("EditorPythonBindings", path)  ← required for editor tools
 5. enable_gem("PhysX", path)
 6. build_project(path)
@@ -155,7 +156,7 @@ Inputs are validated — these will be rejected:
 
 | Error | Likely Cause | Fix |
 |-------|-------------|-----|
-| "Could not connect to O3DE Editor" | Editor not running or RemoteConsole not enabled | Start editor with RemoteConsole gem |
+| "Could not connect to O3DE Editor" | Editor not running or AiCompanion gem not enabled | Start editor with the AiCompanion and EditorPythonBindings gems |
 | "Connection timed out" | Editor busy or firewall blocking port 4600 | Wait and retry |
 | "Invalid entity ID" | Non-numeric ID passed | Use numeric IDs from list_entities() |
 | "Component type not found" | Typo in component name or gem not enabled | Check [component catalog](docs/components.md) |

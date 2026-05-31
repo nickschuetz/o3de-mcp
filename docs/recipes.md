@@ -32,11 +32,11 @@ missing, set `O3DE_ENGINE_PATH` and try again.
 3. create_project(name="MyGame", path="<your_projects_dir>/MyGame")
 4. enable_gem(gem_name="PhysX", project_path="<your_projects_dir>/MyGame")
 5. enable_gem(gem_name="EditorPythonBindings", project_path="<your_projects_dir>/MyGame")
-6. enable_gem(gem_name="RemoteConsole", project_path="<your_projects_dir>/MyGame")
+6. enable_gem(gem_name="AiCompanion", project_path="<your_projects_dir>/MyGame")
 7. build_project(project_path="<your_projects_dir>/MyGame", config="profile")
 ```
 
-> Always enable `RemoteConsole` and `EditorPythonBindings` — they are required
+> Always enable `AiCompanion` and `EditorPythonBindings`. They are required
 > for the editor tools to function.
 
 ### Recipe: Verify environment
