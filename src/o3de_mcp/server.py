@@ -13,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from o3de_mcp.tools.capabilities import register_capabilities_tools
 from o3de_mcp.tools.editor import register_editor_tools
+from o3de_mcp.tools.introspection import register_introspection_tools
 from o3de_mcp.tools.project import register_project_tools
 
 try:
@@ -28,6 +29,7 @@ mcp._mcp_server.version = __version__
 
 register_capabilities_tools(mcp)
 register_editor_tools(mcp)
+register_introspection_tools(mcp)
 register_project_tools(mcp)
 
 
