@@ -58,15 +58,19 @@ _MAX_RESPONSE_BYTES = 1024 * 1024  # 1 MiB
 _TAIL_TIMEOUT = 0.5
 
 
-def _default_editor_timeout() -> float:
-    """Editor command timeout in seconds (env O3DE_EDITOR_TIMEOUT, default 10)."""
+def _get_editor_timeout() -> float:
+    """Return the editor command timeout in seconds.
+
+    Read per call (like host/port) from O3DE_EDITOR_TIMEOUT, defaulting to 10s.
+    A missing/invalid value falls back to 10s, and a non-positive value is
+    treated as invalid (a 0 or negative timeout would make every editor call
+    fail instantly).
+    """
     try:
-        return float(os.environ.get("O3DE_EDITOR_TIMEOUT", "10.0"))
+        value = float(os.environ.get("O3DE_EDITOR_TIMEOUT", "10.0"))
     except (TypeError, ValueError):
         return 10.0
-
-
-_DEFAULT_EDITOR_TIMEOUT = _default_editor_timeout()
+    return value if value > 0.0 else 10.0
 
 
 def _get_editor_host() -> str:
@@ -318,7 +322,7 @@ def _send_editor_command(
     command: str,
     host: str | None = None,
     port: int | None = None,
-    timeout: float = _DEFAULT_EDITOR_TIMEOUT,
+    timeout: float | None = None,
 ) -> str:
     """Send a command to the O3DE Editor and return the response.
 
@@ -328,6 +332,7 @@ def _send_editor_command(
     """
     host = host or _get_editor_host()
     port = port or _get_editor_port()
+    timeout = _get_editor_timeout() if timeout is None else timeout
     try:
         with socket.create_connection((host, port), timeout=timeout) as sock:
             sock.settimeout(timeout)
@@ -387,11 +392,12 @@ class _EditorConnectionPool:
         script: str,
         host: str | None = None,
         port: int | None = None,
-        timeout: float = _DEFAULT_EDITOR_TIMEOUT,
+        timeout: float | None = None,
     ) -> str:
         """Encode and send a Python script, returning the output text."""
         host = host or _get_editor_host()
         port = port or _get_editor_port()
+        timeout = _get_editor_timeout() if timeout is None else timeout
 
         async with self._lock:
             # Fast-fail if we recently failed to connect
