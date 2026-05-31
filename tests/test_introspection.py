@@ -19,28 +19,35 @@ from o3de_mcp.utils.introspection import (
 )
 
 # A stub with an addressable bus, a broadcast-only bus, a templated return type,
-# and a free function (which must NOT be parsed as a bus).
-SAMPLE_STUB = '''\
-def DioramaSpriteRequestBus(busCallType: int, busEventName: str, address: EntityId, args: Tuple[Any]) -> Any:
-    """
-    The following bus Call types, Event names and Argument types are supported by this bus:
-    bus.Event, 'GetSpriteInfo', () -> Diorama::SpriteInfo
-    bus.Event, 'SetSize', (float, float) -> None
-    bus.Event, 'SetTextureByPath', (str) -> bool
-    """
-    pass
-
-def EditorComponentAPIBus(busCallType: int, busEventName: str, args: Tuple[Any]) -> Any:
-    """
-    The following bus Call types, Event names and Argument types are supported by this bus:
-    bus.Broadcast, 'AddComponentOfType', (EntityId, AZ::Uuid) -> Outcome<AZStd::vector<Pair, allocator>, AZStd::basic_string<char, traits, allocator>>
-    """
-    pass
-
-def Math_Lerp(a: float,b: float,t: float) -> None:
-    """A free function, not a bus."""
-    pass
-'''
+# and a free function (which must NOT be parsed as a bus). Built line-by-line so
+# the long, realistic .pyi lines stay intact without tripping the line-length lint.
+SAMPLE_STUB = "\n".join(
+    [
+        "def DioramaSpriteRequestBus(busCallType: int, busEventName: str, "
+        "address: EntityId, args: Tuple[Any]) -> Any:",
+        '    """',
+        "    The following bus Call types, Event names and "
+        "Argument types are supported by this bus:",
+        "    bus.Event, 'GetSpriteInfo', () -> Diorama::SpriteInfo",
+        "    bus.Event, 'SetSize', (float, float) -> None",
+        "    bus.Event, 'SetTextureByPath', (str) -> bool",
+        '    """',
+        "    pass",
+        "",
+        "def EditorComponentAPIBus(busCallType: int, busEventName: str, args: Tuple[Any]) -> Any:",
+        '    """',
+        "    The following bus Call types, Event names and "
+        "Argument types are supported by this bus:",
+        "    bus.Broadcast, 'AddComponentOfType', (EntityId, AZ::Uuid) -> "
+        "Outcome<AZStd::vector<Pair, allocator>, AZStd::basic_string<char, traits, allocator>>",
+        '    """',
+        "    pass",
+        "",
+        "def Math_Lerp(a: float,b: float,t: float) -> None:",
+        '    """A free function, not a bus."""',
+        "    pass",
+    ]
+)
 
 
 class TestSplitTopLevel:
