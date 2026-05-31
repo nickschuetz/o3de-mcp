@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `O3DE_EDITOR_TIMEOUT` env var (default: 10s) for the editor command timeout,
+  so slower editor operations are not cut off at the previous hard-coded 10s.
+- `get_bus_schema` tool: generic, gem-agnostic discovery of any reflected EBus
+  API by reading the editor's generated `azlmbr` stubs. Resolves the project
+  from `O3DE_PROJECT_PATH` or the single registered project with a stub dump.
+
+### Fixed
+
+- `list_entities` no longer fails with `NameError: name 'editor' is not defined`
+  — the generated editor script now imports `azlmbr.editor` and uses an
+  unfiltered `SearchFilter` so it reliably returns all entities.
+
 ## [0.3.0] - 2026-04-07
 
 ### Added

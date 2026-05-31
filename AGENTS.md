@@ -137,6 +137,7 @@ When the editor is not available, you can still manage projects and gems:
 | `O3DE_ENGINE_NAME` | (none) | Select engine by name when multiple registered |
 | `O3DE_EDITOR_HOST` | `127.0.0.1` | Editor remote console host |
 | `O3DE_EDITOR_PORT` | `4600` | Editor remote console port |
+| `O3DE_EDITOR_TIMEOUT` | `10` | Editor command timeout (seconds) |
 | `O3DE_CMAKE_GENERATOR` | Auto-detect | CMake generator for builds |
 | `O3DE_CONFIGURE_TIMEOUT` | `600` | CMake configure timeout (seconds) |
 | `O3DE_BUILD_TIMEOUT` | `1800` | CMake build timeout (seconds) |

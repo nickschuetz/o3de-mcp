@@ -176,6 +176,7 @@ Progressive walkthroughs from project creation to a complete game:
 | `O3DE_ENGINE_NAME` | Select engine by name when multiple are registered | First valid engine |
 | `O3DE_EDITOR_HOST` | Editor remote console host | `127.0.0.1` |
 | `O3DE_EDITOR_PORT` | Editor remote console port | `4600` |
+| `O3DE_EDITOR_TIMEOUT` | Editor command timeout (seconds) | `10` |
 | `O3DE_CMAKE_GENERATOR` | CMake generator for builds | Auto-detected per platform |
 | `O3DE_CONFIGURE_TIMEOUT` | CMake configure timeout (seconds) | `600` |
 | `O3DE_BUILD_TIMEOUT` | CMake build timeout (seconds) | `1800` |
