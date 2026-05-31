@@ -58,6 +58,17 @@ _MAX_RESPONSE_BYTES = 1024 * 1024  # 1 MiB
 _TAIL_TIMEOUT = 0.5
 
 
+def _default_editor_timeout() -> float:
+    """Editor command timeout in seconds (env O3DE_EDITOR_TIMEOUT, default 10)."""
+    try:
+        return float(os.environ.get("O3DE_EDITOR_TIMEOUT", "10.0"))
+    except (TypeError, ValueError):
+        return 10.0
+
+
+_DEFAULT_EDITOR_TIMEOUT = _default_editor_timeout()
+
+
 def _get_editor_host() -> str:
     """Return the configured editor remote console host.
 
@@ -307,7 +318,7 @@ def _send_editor_command(
     command: str,
     host: str | None = None,
     port: int | None = None,
-    timeout: float = 10.0,
+    timeout: float = _DEFAULT_EDITOR_TIMEOUT,
 ) -> str:
     """Send a command to the O3DE Editor and return the response.
 
@@ -376,7 +387,7 @@ class _EditorConnectionPool:
         script: str,
         host: str | None = None,
         port: int | None = None,
-        timeout: float = 10.0,
+        timeout: float = _DEFAULT_EDITOR_TIMEOUT,
     ) -> str:
         """Encode and send a Python script, returning the output text."""
         host = host or _get_editor_host()
@@ -583,14 +594,14 @@ def register_editor_tools(mcp: FastMCP) -> None:
         script = textwrap.dedent("""\
             import azlmbr.entity as entity
             import azlmbr.bus as bus
+            import azlmbr.editor as editor
             import json
 
             search_filter = entity.SearchFilter()
-            search_filter.names = ['*']
             entity_ids = entity.SearchBus(bus.Broadcast, 'SearchEntities', search_filter)
 
             results = []
-            for eid in entity_ids:
+            for eid in (entity_ids or []):
                 name = editor.EditorEntityInfoRequestBus(bus.Event, 'GetName', eid)
                 results.append({'id': str(eid), 'name': name})
 
