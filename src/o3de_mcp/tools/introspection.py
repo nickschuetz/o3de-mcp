@@ -56,6 +56,6 @@ def register_introspection_tools(mcp: FastMCP) -> None:
         """
         try:
             result = _get_bus_schema(module=module, bus=bus, project_path=project_path)
-        except LookupError as error:
+        except (LookupError, ValueError) as error:
             return json.dumps({"error": str(error)}, indent=2)
         return json.dumps(result, indent=2)

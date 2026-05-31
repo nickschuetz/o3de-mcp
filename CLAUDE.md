@@ -51,6 +51,7 @@ src/o3de_mcp/
 - **utils/capabilities.py** provides `probe_editor_connection()` (async TCP check), `probe_cli()` (CLI availability), and `get_server_capabilities()` (aggregated report).
 - **utils/o3de.py** handles O3DE engine discovery via `O3DE_ENGINE_PATH` env var or `~/.o3de/o3de_manifest.json`. Supports multiple engines via `O3DE_ENGINE_NAME`. All subprocess calls to the O3DE CLI go through `run_o3de_cli()`. Also provides `find_o3de_engine_version()`, `find_all_engines()`, and `list_available_templates()`.
 - Editor tools use raw TCP sockets to send `pyRunScript` commands. Host/port are configurable via `O3DE_EDITOR_HOST` and `O3DE_EDITOR_PORT` env vars (default: `127.0.0.1:4600`). The scripts use the `azlmbr` namespace available inside the O3DE Editor Python environment.
+- **utils/introspection.py** reads the editor's generated `azlmbr` stubs (`<project>/user/python_symbols/azlmbr/<module>.pyi`) to build a gem-agnostic EBus schema for the `get_bus_schema` tool. The project is resolved from the `O3DE_PROJECT_PATH` env var (or the single registered project with a stub dump), so set `O3DE_PROJECT_PATH` to disambiguate when several projects have dumps.
 
 ## Key Conventions
 

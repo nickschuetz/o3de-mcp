@@ -18,9 +18,39 @@ Returns JSON with `editor`, `cli`, and `tool_categories` sections.
 
 ---
 
+## Introspection Tools
+
+Discover a gem's scripting API. These read the editor's generated stubs from
+disk, so they work without a running editor (the project must have been opened
+in the editor once to produce the stubs).
+
+### get_bus_schema
+
+Return the reflected EBus schema for a module as JSON, so an agent can learn an
+API before calling it. Gem-agnostic: works for any reflected bus with no
+per-gem catalog.
+
+Parameters:
+
+- `module` (optional): azlmbr submodule to inspect, e.g. `diorama`, `physics`.
+  Must be a bare identifier. Omit to list the modules that have a stub.
+- `bus` (optional): bus name to filter to, e.g. `DioramaSpriteRequestBus`.
+- `project_path` (optional): project whose stubs to read. Omit to resolve from
+  `O3DE_PROJECT_PATH` or the single registered project that has a stub dump.
+
+Returns JSON. With no module: `{symbols_dir, modules}`. With a module:
+`{module, source, buses: [{name, addressable, address_type, events: [{call_type,
+name, args, returns}]}], note}`.
+
+> **Note:** The generated stub lists EBus event arguments by type only. For
+> argument names and tooltips, use the editor-side `GetBusSchema` event on the
+> AiCompanion gem's request bus, which reads the C++ BehaviorContext.
+
+---
+
 ## Editor Tools
 
-Require a running O3DE Editor with RemoteConsole + EditorPythonBindings gems.
+Require a running O3DE Editor with AiCompanion + EditorPythonBindings gems.
 If the editor is unreachable, these tools will fast-fail with an
 `editor_unavailable` error within seconds rather than timing out.
 

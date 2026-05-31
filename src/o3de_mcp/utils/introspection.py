@@ -44,6 +44,11 @@ _SYMBOLS_SUBPATH = Path("user") / "python_symbols" / "azlmbr"
 #: Marker text in a bus function's docstring (identifies it as an EBus stub).
 _BUS_MARKER = "are supported by this bus"
 
+#: A module is an azlmbr submodule name and becomes a path segment, so it must
+#: be a bare identifier (no separators or "..") to keep it inside the symbols
+#: directory. Mirrors the validator in tools.project so the rule is consistent.
+_MODULE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
 #: ``def <Name>(busCallType: int, busEventName: str[, address: <T>], ...)``
 _BUS_DEF_RE = re.compile(
     r"^def\s+(?P<name>\w+)\s*\("
@@ -224,6 +229,14 @@ def get_bus_schema(
     if module is None:
         return list_modules(project_path)
 
+    # Validate before building a path from it: module is a path segment, so an
+    # unchecked value like "../../etc/hostname" would escape the symbols dir.
+    if not _MODULE_RE.match(module):
+        raise ValueError(
+            f"Invalid module name {module!r}. Must be a bare identifier: start "
+            "with a letter and contain only letters, digits, hyphens, or underscores."
+        )
+
     symbols_dir = resolve_symbols_dir(project_path)
     stub_path = symbols_dir / f"{module}.pyi"
     if not stub_path.is_file():
@@ -233,11 +246,12 @@ def get_bus_schema(
             f"Available modules: {', '.join(available) or '(none)'}."
         )
 
-    buses = parse_stub(stub_path.read_text())
+    all_buses = parse_stub(stub_path.read_text())
+    buses = all_buses
     if bus is not None:
-        buses = [entry for entry in buses if entry["name"] == bus]
+        buses = [entry for entry in all_buses if entry["name"] == bus]
         if not buses:
-            names = ", ".join(entry["name"] for entry in parse_stub(stub_path.read_text()))
+            names = ", ".join(entry["name"] for entry in all_buses)
             raise LookupError(f"No bus '{bus}' in module '{module}'. Buses: {names or '(none)'}.")
 
     return {

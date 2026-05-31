@@ -151,6 +151,16 @@ class TestGetBusSchema:
         with pytest.raises(LookupError, match="No stub for module 'nope'"):
             get_bus_schema(module="nope", project_path=str(tmp_path))
 
+    def test_rejects_path_traversal_module(self, tmp_path: Path) -> None:
+        _make_project(tmp_path, "diorama", SAMPLE_STUB)
+        with pytest.raises(ValueError, match="Invalid module name"):
+            get_bus_schema(module="../../../../etc/hostname", project_path=str(tmp_path))
+
+    def test_rejects_module_with_separators(self, tmp_path: Path) -> None:
+        _make_project(tmp_path, "diorama", SAMPLE_STUB)
+        with pytest.raises(ValueError, match="Invalid module name"):
+            get_bus_schema(module="sub/diorama", project_path=str(tmp_path))
+
     def test_unknown_bus_raises(self, tmp_path: Path) -> None:
         _make_project(tmp_path, "diorama", SAMPLE_STUB)
         with pytest.raises(LookupError, match="No bus 'Nope'"):
