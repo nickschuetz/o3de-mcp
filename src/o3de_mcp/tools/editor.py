@@ -988,8 +988,12 @@ def register_editor_tools(mcp: FastMCP) -> None:
             import json
 
             _params = json.loads({params!r})
-            general.open_level(_params['level_path'])
-            print(f"Opened level: {{_params['level_path']}}")
+            # open_level_no_prompt (not open_level): open_level pops a confirmation /
+            # save-changes modal that never gets a click in the headless agent context,
+            # so the switch silently no-ops. Report the level the editor actually landed
+            # on rather than assuming the request succeeded.
+            general.open_level_no_prompt(_params['level_path'])
+            print(f"Opened level: {{general.get_current_level_name()}}")
         """)
         return await _async_run_editor_script(script)
 
