@@ -16,11 +16,13 @@ Communication flow:
   interpreter, which has access to the ``azlmbr`` namespace.
 
 Configuration:
-  O3DE_EDITOR_HOST       — editor host (default: 127.0.0.1)
-  O3DE_EDITOR_PORT       — editor port (default: 4600)
-  O3DE_EDITOR_TLS        — enable TLS (default: 0)
-  O3DE_EDITOR_TLS_VERIFY — verify TLS cert (default: 0)
-  O3DE_EDITOR_TLS_CA     — path to CA cert for verification
+  O3DE_EDITOR_HOST            — editor host (default: 127.0.0.1)
+  O3DE_EDITOR_PORT            — editor port (default: 4600)
+  O3DE_EDITOR_TIMEOUT         — per-command execution timeout, seconds (default: 600)
+  O3DE_EDITOR_CONNECT_TIMEOUT — TCP connect timeout, seconds (default: 5)
+  O3DE_EDITOR_TLS             — enable TLS (default: 0)
+  O3DE_EDITOR_TLS_VERIFY      — verify TLS cert (default: 0)
+  O3DE_EDITOR_TLS_CA          — path to CA cert for verification
 """
 
 from __future__ import annotations
@@ -58,19 +60,48 @@ _MAX_RESPONSE_BYTES = 1024 * 1024  # 1 MiB
 _TAIL_TIMEOUT = 0.5
 
 
-def _get_editor_timeout() -> float:
-    """Return the editor command timeout in seconds.
+# Default per-command execution timeout (seconds). Deliberately generous:
+# editor operations run the submitted Python *synchronously* and the editor
+# does not reply until the script finishes, so this is really "how long an
+# editor operation may take" — level loads, game-mode entry, and on-demand
+# asset compilation routinely exceed tens of seconds. A dead editor is caught
+# in milliseconds by the connect timeout / fast-fail window, not this value,
+# so a large default costs nothing on the healthy path.
+_DEFAULT_EDITOR_TIMEOUT = 600.0
 
-    Read per call (like host/port) from O3DE_EDITOR_TIMEOUT, defaulting to 10s.
-    A missing/invalid value falls back to 10s, and a non-positive value is
-    treated as invalid (a 0 or negative timeout would make every editor call
-    fail instantly).
+# Default TCP connect timeout (seconds). On loopback a dead editor refuses
+# instantly; this only bounds the pathological "host silently blackholes" case.
+_DEFAULT_CONNECT_TIMEOUT = 5.0
+
+
+def _get_editor_timeout() -> float:
+    """Return the per-command editor execution timeout in seconds.
+
+    Read per call (like host/port) from O3DE_EDITOR_TIMEOUT. A missing/invalid
+    value falls back to the default, and a non-positive value is treated as
+    invalid (a 0 or negative timeout would make every editor call fail
+    instantly).
     """
     try:
-        value = float(os.environ.get("O3DE_EDITOR_TIMEOUT", "10.0"))
+        value = float(os.environ.get("O3DE_EDITOR_TIMEOUT", str(_DEFAULT_EDITOR_TIMEOUT)))
     except (TypeError, ValueError):
-        return 10.0
-    return value if value > 0.0 else 10.0
+        return _DEFAULT_EDITOR_TIMEOUT
+    return value if value > 0.0 else _DEFAULT_EDITOR_TIMEOUT
+
+
+def _get_editor_connect_timeout() -> float:
+    """Return the TCP connect timeout in seconds.
+
+    Separate from the command timeout so that "editor is unreachable" is
+    detected quickly even when a long command timeout is configured. Read per
+    call from O3DE_EDITOR_CONNECT_TIMEOUT; invalid/non-positive falls back to
+    the default.
+    """
+    try:
+        value = float(os.environ.get("O3DE_EDITOR_CONNECT_TIMEOUT", str(_DEFAULT_CONNECT_TIMEOUT)))
+    except (TypeError, ValueError):
+        return _DEFAULT_CONNECT_TIMEOUT
+    return value if value > 0.0 else _DEFAULT_CONNECT_TIMEOUT
 
 
 def _get_editor_host() -> str:
@@ -398,6 +429,7 @@ class _EditorConnectionPool:
         host = host or _get_editor_host()
         port = port or _get_editor_port()
         timeout = _get_editor_timeout() if timeout is None else timeout
+        connect_timeout = _get_editor_connect_timeout()
 
         async with self._lock:
             # Fast-fail if we recently failed to connect
@@ -413,20 +445,35 @@ class _EditorConnectionPool:
                         "cannot be performed via CLI.",
                     )
 
+            # Phase 1: connect (bounded by the short connect timeout).
             try:
-                reader, writer = await self._ensure_connected(host, port, timeout)
-
-                if self._protocol == _PROTO_AGENT_SERVER:
-                    return await self._send_framed_script(reader, writer, script, timeout)
-                else:
-                    return await self._send_legacy_script(reader, writer, script, timeout)
-
+                reader, writer = await self._ensure_connected(host, port, connect_timeout)
             except (
                 ConnectionRefusedError,
                 TimeoutError,
                 asyncio.TimeoutError,
                 OSError,
             ) as exc:
+                self._last_failure_time = time.monotonic()
+                await self._close()
+                return _connection_error_response(exc, host, port, connect_timeout)
+
+            # Phase 2: run the command (bounded by the generous command timeout).
+            try:
+                if self._protocol == _PROTO_AGENT_SERVER:
+                    return await self._send_framed_script(reader, writer, script, timeout)
+                else:
+                    return await self._send_legacy_script(reader, writer, script, timeout)
+            except (TimeoutError, asyncio.TimeoutError):
+                self._last_failure_time = time.monotonic()
+                await self._close()
+                return _format_error(
+                    "timeout",
+                    f"O3DE Editor command did not complete within {timeout}s. The editor "
+                    "may still be running the script — increase O3DE_EDITOR_TIMEOUT for "
+                    "long operations (level loads, game-mode entry, asset compilation).",
+                )
+            except (ConnectionRefusedError, OSError) as exc:
                 self._last_failure_time = time.monotonic()
                 await self._close()
                 return _connection_error_response(exc, host, port, timeout)
@@ -467,7 +514,7 @@ class _EditorConnectionPool:
         return response.decode("utf-8", errors="replace").strip()
 
     async def _ensure_connected(
-        self, host: str, port: int, timeout: float
+        self, host: str, port: int, connect_timeout: float
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         # Reconnect if target changed or connection is stale
         if (
@@ -482,15 +529,17 @@ class _EditorConnectionPool:
 
         ssl_ctx = _get_tls_context()
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port, ssl=ssl_ctx), timeout=timeout
+            asyncio.open_connection(host, port, ssl=ssl_ctx), timeout=connect_timeout
         )
         self._reader = reader
         self._writer = writer
         self._host = host
         self._port = port
 
-        # Auto-detect protocol by sending a framed ping
-        self._protocol = await self._detect_protocol(reader, writer)
+        # Auto-detect protocol. Detection may reconnect (legacy fallback), so
+        # always hand back the pool's *current* sockets rather than the locals
+        # captured above, which detection may have already closed.
+        self._protocol = await self._detect_protocol(host, port, connect_timeout)
         logger.info(
             "Connected to %s:%d (protocol=%s, tls=%s)",
             host,
@@ -499,38 +548,38 @@ class _EditorConnectionPool:
             "yes" if ssl_ctx else "no",
         )
 
-        return reader, writer
+        return self._reader, self._writer  # type: ignore[return-value]
 
-    async def _detect_protocol(
-        self,
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
-    ) -> int:
+    async def _detect_protocol(self, host: str, port: int, connect_timeout: float) -> int:
         """Detect whether the server speaks AgentServer or legacy protocol.
 
-        Sends a framed ``ping`` request. If a valid framed JSON response
-        with ``"status": "ok"`` comes back within 2 seconds, the server
-        is an AgentServer. Otherwise, fall back to legacy mode.
+        Sends a framed ``ping`` on the current connection. If a valid framed
+        JSON response with ``"status": "ok"`` comes back within 2 seconds, the
+        server is an AgentServer and the connection is left ready for use.
+        Otherwise the ping has left junk in the stream, so a fresh connection
+        is opened for the legacy text protocol and the pool is repointed at it.
         """
         try:
             ping_bytes = _build_framed_request("ping")
-            writer.write(ping_bytes)
-            await writer.drain()
-            response = await _async_recv_framed(reader, timeout=2.0)
+            self._writer.write(ping_bytes)  # type: ignore[union-attr]
+            await self._writer.drain()  # type: ignore[union-attr]
+            response = await _async_recv_framed(self._reader, timeout=2.0)  # type: ignore[arg-type]
             if isinstance(response, dict) and response.get("status") == "ok":
                 return _PROTO_AGENT_SERVER
         except Exception:
-            # Any failure means not an AgentServer — reconnect for legacy
-            await self._close()
-            host = self._host or _get_editor_host()
-            port = self._port or _get_editor_port()
-            ssl_ctx = _get_tls_context()
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port, ssl=ssl_ctx), timeout=5.0
-            )
-            self._reader = reader
-            self._writer = writer
+            pass
 
+        # Not an AgentServer (or the ping failed): reconnect fresh for legacy so
+        # the caller receives a clean, open connection — not the ping's socket.
+        await self._close()
+        ssl_ctx = _get_tls_context()
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port, ssl=ssl_ctx), timeout=connect_timeout
+        )
+        self._reader = reader
+        self._writer = writer
+        self._host = host
+        self._port = port
         return _PROTO_LEGACY
 
     async def _close(self) -> None:
@@ -556,9 +605,13 @@ _pool = _EditorConnectionPool()
 # ---------------------------------------------------------------------------
 
 
-async def _async_run_editor_script(script: str) -> str:
-    """Encode a Python script and send it to the editor via the pool."""
-    return await _pool.send_script(script)
+async def _async_run_editor_script(script: str, timeout: float | None = None) -> str:
+    """Encode a Python script and send it to the editor via the pool.
+
+    ``timeout`` overrides the per-command execution timeout for this call;
+    ``None`` uses the O3DE_EDITOR_TIMEOUT default.
+    """
+    return await _pool.send_script(script, timeout=timeout)
 
 
 def _run_editor_script(script: str) -> str:
@@ -577,7 +630,7 @@ def register_editor_tools(mcp: FastMCP) -> None:
     # --- Script execution ---
 
     @mcp.tool()
-    async def run_editor_python(script: str) -> str:
+    async def run_editor_python(script: str, timeout: float | None = None) -> str:
         """Execute a Python script inside the running O3DE Editor.
 
         The script runs in the editor's embedded Python interpreter and has
@@ -586,8 +639,12 @@ def register_editor_tools(mcp: FastMCP) -> None:
 
         Args:
             script: Python code to execute. Has access to azlmbr modules.
+            timeout: Optional per-call execution timeout in seconds. The editor
+                runs the script synchronously and does not reply until it
+                finishes, so raise this for known-heavy operations. Omit to use
+                the O3DE_EDITOR_TIMEOUT default (600s).
         """
-        return await _async_run_editor_script(script)
+        return await _async_run_editor_script(script, timeout=timeout)
 
     # --- Entity management ---
 
@@ -638,9 +695,9 @@ def register_editor_tools(mcp: FastMCP) -> None:
             _parent_id_str = _params['parent_id']
 
             if _parent_id_str:
-                parent = azlmbr.entity.EntityId(_parent_id_str)
+                parent = entity.EntityId(_parent_id_str)
             else:
-                parent = azlmbr.entity.EntityId()
+                parent = entity.EntityId()
 
             new_id = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)
             editor.EditorEntityAPIBus(bus.Event, 'SetName', new_id, _name)

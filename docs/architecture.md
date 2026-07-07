@@ -28,6 +28,7 @@ graph LR
         S["server.py<br/>(FastMCP)"]
         CAP["capabilities.py<br/>get_capabilities"]
         ED["editor.py<br/>Entity, Component,<br/>Level, Game Mode"]
+        INTRO["introspection.py<br/>get_bus_schema"]
         PR["project.py<br/>Project, Gem,<br/>Build, Export"]
         UC["utils/capabilities.py<br/>Probe editor & CLI"]
         UO["utils/o3de.py<br/>Engine discovery,<br/>CLI runner"]
@@ -44,15 +45,18 @@ graph LR
 
     subgraph FS["Filesystem"]
         MANIFEST["~/.o3de/<br/>o3de_manifest.json"]
+        STUBS["&lt;project&gt;/user/<br/>python_symbols/azlmbr"]
     end
 
     CC -- "MCP protocol<br/>(stdio)" --> S
     S --> CAP
     S --> ED
+    S --> INTRO
     S --> PR
     CAP --> UC
-    ED -- "TCP :4600<br/>(length-prefixed JSON)" --> AS
+    ED -- "TCP :4600 (length-prefixed JSON)<br/>connect ≤5s · command ≤600s" --> AS
     AS --> EPB
+    INTRO -- "reads .pyi stubs" --> STUBS
     PR --> UO
     UO -- subprocess --> SCRIPT
     UO -- reads --> MANIFEST
@@ -81,6 +85,15 @@ The [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion
 
 Scripts are base64-encoded for safe transport and executed in the editor's embedded Python interpreter.
 
+#### Connection lifecycle & timeouts
+
+A single persistent TCP connection is pooled across tool calls (`_EditorConnectionPool`). Each `send_script` runs in two bounded phases:
+
+1. **Connect** — bounded by `O3DE_EDITOR_CONNECT_TIMEOUT` (default **5s**). On first use the pool opens the socket and detects the protocol by sending a framed `ping`; if that fails it transparently reconnects for the legacy text protocol.
+2. **Command** — bounded by `O3DE_EDITOR_TIMEOUT` (default **600s**). The editor executes the submitted script *synchronously* and does not reply until it finishes, so this timeout is effectively "how long an editor operation may take." Level loads, game-mode entry, and on-demand asset compilation routinely exceed tens of seconds, so the default is deliberately generous; `run_editor_python` also accepts a per-call `timeout` override.
+
+Separating the two means an **unreachable** editor still fails in milliseconds (connect timeout + a 5s fast-fail window that short-circuits repeated attempts) even when a long command timeout is configured. A command that times out returns a `timeout` error noting the editor may still be running the script — retrying blindly can duplicate work, so prefer raising the timeout.
+
 ### Project tools (CLI-based)
 
 ```
@@ -103,9 +116,11 @@ Always call `get_capabilities()` first to determine which tool categories are av
 |--------|------|
 | `server.py` | FastMCP entry point — registers all tool modules |
 | `tools/capabilities.py` | Exposes `get_capabilities` tool |
-| `tools/editor.py` | 16 editor automation tools — entity CRUD, components, levels, game mode |
+| `tools/editor.py` | 16 editor automation tools — entity CRUD, components, levels, game mode; pooled TCP transport with protocol auto-detection |
+| `tools/introspection.py` | Exposes `get_bus_schema` — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs |
 | `tools/project.py` | 12 project management tools — create, build, export, gem management |
 | `utils/capabilities.py` | Runtime probing logic (TCP connect check, CLI availability) |
+| `utils/introspection.py` | Parses `<project>/user/python_symbols/azlmbr/*.pyi` stubs into a structured EBus schema |
 | `utils/o3de.py` | Engine/manifest discovery, CLI runner, project/gem listing |
 
 ## Related Projects

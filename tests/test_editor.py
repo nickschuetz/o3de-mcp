@@ -19,8 +19,10 @@ from o3de_mcp.tools.editor import (
     _EditorConnectionPool,
     _encode_script,
     _format_error,
+    _get_editor_connect_timeout,
     _get_editor_host,
     _get_editor_port,
+    _get_editor_timeout,
     _get_tls_context,
     _send_editor_command,
     _validate_component_type,
@@ -107,6 +109,34 @@ class TestEditorConfig:
     def test_invalid_port_falls_back(self) -> None:
         with patch.dict("os.environ", {"O3DE_EDITOR_PORT": "not_a_number"}):
             assert _get_editor_port() == 4600
+
+    def test_default_command_timeout(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            assert _get_editor_timeout() == 600.0
+
+    def test_custom_command_timeout(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EDITOR_TIMEOUT": "45"}):
+            assert _get_editor_timeout() == 45.0
+
+    def test_invalid_command_timeout_falls_back(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EDITOR_TIMEOUT": "nope"}):
+            assert _get_editor_timeout() == 600.0
+
+    def test_non_positive_command_timeout_falls_back(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EDITOR_TIMEOUT": "0"}):
+            assert _get_editor_timeout() == 600.0
+
+    def test_default_connect_timeout(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            assert _get_editor_connect_timeout() == 5.0
+
+    def test_custom_connect_timeout(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EDITOR_CONNECT_TIMEOUT": "12"}):
+            assert _get_editor_connect_timeout() == 12.0
+
+    def test_invalid_connect_timeout_falls_back(self) -> None:
+        with patch.dict("os.environ", {"O3DE_EDITOR_CONNECT_TIMEOUT": "-3"}):
+            assert _get_editor_connect_timeout() == 5.0
 
 
 # --- Script encoding tests ---
@@ -213,7 +243,7 @@ class TestAsyncRunEditorScript:
                 mock_pool.send_script = AsyncMock(return_value="hello")
                 result = await _async_run_editor_script(script)
                 # Verify the script was passed to send_script
-                mock_pool.send_script.assert_called_once_with(script)
+                mock_pool.send_script.assert_called_once_with(script, timeout=None)
                 return result
 
         result = asyncio.run(run())
@@ -301,3 +331,88 @@ class TestTlsContext:
         with patch.dict("os.environ", {"O3DE_EDITOR_TLS": "1"}):
             ctx = _get_tls_context()
             assert ctx is not None
+
+
+# --- End-to-end protocol tests against a fake in-process server ---
+
+
+class TestProtocolRoundTrip:
+    """Drive send_script against a real local server speaking each protocol.
+
+    These exercise the connect → detect → command flow end-to-end, which the
+    connection-refused tests never reach.
+    """
+
+    def test_agent_server_framed_round_trip(self) -> None:
+        """A framed AgentServer replies to ping then execute_python."""
+        import struct
+
+        async def run() -> str:
+            async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+                try:
+                    while True:
+                        header = await reader.readexactly(4)
+                        length = struct.unpack(">I", header)[0]
+                        body = await reader.readexactly(length)
+                        msg = json.loads(body)
+                        if msg["type"] == "ping":
+                            resp = {"id": msg["id"], "status": "ok"}
+                        else:
+                            resp = {"id": msg["id"], "status": "ok", "output": "framed-output"}
+                        data = json.dumps(resp).encode("utf-8")
+                        writer.write(struct.pack(">I", len(data)) + data)
+                        await writer.drain()
+                except (asyncio.IncompleteReadError, ConnectionError):
+                    pass
+
+            server = await asyncio.start_server(handle, "127.0.0.1", 0)
+            port = server.sockets[0].getsockname()[1]
+            async with server:
+                pool = _EditorConnectionPool()
+                try:
+                    return await pool.send_script(
+                        "print('x')", host="127.0.0.1", port=port, timeout=2.0
+                    )
+                finally:
+                    # Close the pooled connection so the server's handler stops
+                    # awaiting and the context manager can tear down (otherwise
+                    # wait_closed blocks on the live connection on Python 3.12+).
+                    await pool._close()
+
+        assert asyncio.run(run()) == "framed-output"
+
+    def test_legacy_fallback_round_trip(self) -> None:
+        """A non-framed server triggers legacy fallback and still returns output.
+
+        Regression test: legacy detection reconnects, and send_script must use
+        the reconnected socket — not the closed one the ping was sent on.
+        """
+
+        async def run() -> str:
+            async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+                try:
+                    # Respond to any input with plain text. On the detection
+                    # connection this is read as a (nonsensical) frame length,
+                    # failing detection fast; on the command connection it is
+                    # the script's output.
+                    await reader.read(4096)
+                    writer.write(b"legacy-output\n")
+                    await writer.drain()
+                    await asyncio.sleep(0.05)
+                except ConnectionError:
+                    pass
+                finally:
+                    writer.close()
+
+            server = await asyncio.start_server(handle, "127.0.0.1", 0)
+            port = server.sockets[0].getsockname()[1]
+            async with server:
+                pool = _EditorConnectionPool()
+                try:
+                    return await pool.send_script(
+                        "print('x')", host="127.0.0.1", port=port, timeout=2.0
+                    )
+                finally:
+                    await pool._close()
+
+        assert "legacy-output" in asyncio.run(run())

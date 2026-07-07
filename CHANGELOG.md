@@ -9,14 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `O3DE_EDITOR_TIMEOUT` env var (default: 10s) for the editor command timeout,
-  so slower editor operations are not cut off at the previous hard-coded 10s.
+- `O3DE_EDITOR_TIMEOUT` env var (default: **600s**) for the per-command editor
+  execution timeout, so slower editor operations are not cut off. The editor
+  runs each script synchronously and does not reply until it finishes, so this
+  value is effectively "how long an editor operation may take."
+- `O3DE_EDITOR_CONNECT_TIMEOUT` env var (default: 5s) — a separate TCP connect
+  timeout so an unreachable editor is detected in milliseconds even when a long
+  command timeout is configured.
+- `run_editor_python` now accepts an optional per-call `timeout` argument to
+  raise the execution ceiling for known-heavy scripts.
 - `get_bus_schema` tool: generic, gem-agnostic discovery of any reflected EBus
   API by reading the editor's generated `azlmbr` stubs. Resolves the project
   from `O3DE_PROJECT_PATH` or the single registered project with a stub dump.
 
+### Changed
+
+- Raised the default editor command timeout from 10s to 600s. 10s was far too
+  short for real editor operations (level loads, game-mode entry, on-demand
+  asset compilation), causing spurious `timeout` errors while the editor was
+  still working — the change that most deterred use.
+- Timeout errors now state that the *command* did not complete (and the editor
+  may still be running the script) and point at `O3DE_EDITOR_TIMEOUT`, instead
+  of misattributing the failure to the connection.
+
 ### Fixed
 
+- Legacy RemoteConsole fallback was broken: after protocol detection reconnected
+  for the legacy path, `send_script` used the stale (already-closed) socket and
+  lost the pooled connection identity, so every legacy call returned empty/errored
+  and reconnected. Detection now repoints the pool at the reconnected socket.
+- `create_entity` referenced the unbound name `azlmbr` (only `azlmbr.entity` was
+  imported, as `entity`), risking a `NameError`; it now uses `entity.EntityId(...)`
+  consistently with the other entity tools.
+- `load_level` now calls `open_level_no_prompt` instead of `open_level`, so the
+  level switch actually happens without popping a modal confirmation dialog that
+  a headless/automated session cannot dismiss.
 - `list_entities` no longer fails with `NameError: name 'editor' is not defined`
   — the generated editor script now imports `azlmbr.editor` and uses an
   unfiltered `SearchFilter` so it reliably returns all entities.

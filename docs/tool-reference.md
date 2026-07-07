@@ -61,6 +61,7 @@ Execute arbitrary Python in the editor. Full `azlmbr` API access.
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `script` | str | yes | Python code to run in editor |
+| `timeout` | float | no | Per-call execution timeout (seconds). Omit to use `O3DE_EDITOR_TIMEOUT` (default 600). Raise for known-heavy scripts — the editor runs the script synchronously and does not reply until it finishes. |
 
 ### list_entities
 

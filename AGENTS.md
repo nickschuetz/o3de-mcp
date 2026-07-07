@@ -137,7 +137,8 @@ When the editor is not available, you can still manage projects and gems:
 | `O3DE_ENGINE_NAME` | (none) | Select engine by name when multiple registered |
 | `O3DE_EDITOR_HOST` | `127.0.0.1` | Editor remote console host |
 | `O3DE_EDITOR_PORT` | `4600` | Editor remote console port |
-| `O3DE_EDITOR_TIMEOUT` | `10` | Editor command timeout (seconds) |
+| `O3DE_EDITOR_TIMEOUT` | `600` | Per-command editor execution timeout (seconds) |
+| `O3DE_EDITOR_CONNECT_TIMEOUT` | `5` | Editor TCP connect timeout (seconds) |
 | `O3DE_CMAKE_GENERATOR` | Auto-detect | CMake generator for builds |
 | `O3DE_CONFIGURE_TIMEOUT` | `600` | CMake configure timeout (seconds) |
 | `O3DE_BUILD_TIMEOUT` | `1800` | CMake build timeout (seconds) |
@@ -158,7 +159,7 @@ Inputs are validated — these will be rejected:
 | Error | Likely Cause | Fix |
 |-------|-------------|-----|
 | "Could not connect to O3DE Editor" | Editor not running or AiCompanion gem not enabled | Start editor with the AiCompanion and EditorPythonBindings gems |
-| "Connection timed out" | Editor busy or firewall blocking port 4600 | Wait and retry |
+| "timeout" (command did not complete) | A single editor op ran past `O3DE_EDITOR_TIMEOUT`; editor may still be working | Raise `O3DE_EDITOR_TIMEOUT` or pass `run_editor_python(..., timeout=N)`; don't blindly retry (may duplicate work) |
 | "Invalid entity ID" | Non-numeric ID passed | Use numeric IDs from list_entities() |
 | "Component type not found" | Typo in component name or gem not enabled | Check [component catalog](docs/components.md) |
 | "O3DE CLI not found" | Engine not installed or O3DE_ENGINE_PATH not set | Run get_engine_info() to diagnose |
