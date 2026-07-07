@@ -43,7 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consistently with the other entity tools.
 - `load_level` now calls `open_level_no_prompt` instead of `open_level`, so the
   level switch actually happens without popping a modal confirmation dialog that
-  a headless/automated session cannot dismiss.
+  a headless/automated session cannot dismiss. It also strips a leading `Levels/`
+  from the path (`open_level_no_prompt` wants the bare level name, so the
+  documented `Levels/MyLevel` form previously returned `False` without switching),
+  reports the level the editor actually landed on, and surfaces an explicit error
+  when the open fails instead of falsely claiming success.
 - `list_entities` no longer fails with `NameError: name 'editor' is not defined`
   — the generated editor script now imports `azlmbr.editor` and uses an
   unfiltered `SearchFilter` so it reliably returns all entities.

@@ -1047,10 +1047,25 @@ def register_editor_tools(mcp: FastMCP) -> None:
             _params = json.loads({params!r})
             # open_level_no_prompt (not open_level): open_level pops a confirmation /
             # save-changes modal that never gets a click in the headless agent context,
-            # so the switch silently no-ops. Report the level the editor actually landed
-            # on rather than assuming the request succeeded.
-            general.open_level_no_prompt(_params['level_path'])
-            print(f"Opened level: {{general.get_current_level_name()}}")
+            # so the switch silently no-ops.
+            #
+            # It also wants the level NAME relative to the project's Levels/ folder
+            # (e.g. 'MyLevel'), not a 'Levels/MyLevel' path — the prefixed form
+            # silently returns False without switching. Strip a leading Levels/ so the
+            # documented 'Levels/MyLevel' input and a bare name both work. Report the
+            # level the editor actually landed on, and surface a real error on failure
+            # instead of assuming success.
+            _name = _params['level_path']
+            for _prefix in ('Levels/', 'levels/'):
+                if _name.startswith(_prefix):
+                    _name = _name[len(_prefix):]
+                    break
+            _ok = general.open_level_no_prompt(_name)
+            _actual = general.get_current_level_name()
+            if _ok:
+                print(f"Opened level: {{_actual}}")
+            else:
+                print(f"ERROR: could not open level {{_name!r}}; still on {{_actual!r}}")
         """)
         return await _async_run_editor_script(script)
 
