@@ -11,6 +11,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from mcp.server.fastmcp import FastMCP
 
+from o3de_mcp.tools.assets import register_assets_tools
 from o3de_mcp.tools.capabilities import register_capabilities_tools
 from o3de_mcp.tools.editor import register_editor_tools
 from o3de_mcp.tools.introspection import register_introspection_tools
@@ -31,6 +32,7 @@ register_capabilities_tools(mcp)
 register_editor_tools(mcp)
 register_introspection_tools(mcp)
 register_project_tools(mcp)
+register_assets_tools(mcp)
 
 
 def main() -> None:

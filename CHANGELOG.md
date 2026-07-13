@@ -9,6 +9,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **20 new tools** across 4 categories:
+  - **Editor tools (15 new):**
+    - `set_transform`, `get_transform`, `set_parent` — entity transform management
+    - `remove_component` — remove components from entities
+    - `assign_asset` — assign assets to component properties by path
+    - `run_console_command`, `get_cvar`, `set_cvar` — console/CVAR control
+    - `create_level`, `list_levels` — level creation and listing
+    - `get_viewport_camera`, `set_viewport_camera`, `focus_entity`, `capture_viewport` — viewport camera and screenshot
+    - `instantiate_prefab`, `create_prefab_from_entity`, `save_prefab` — prefab manipulation
+    - `begin_session`, `exec_in_session`, `end_session`, `get_session_vars` — persistent Python sessions
+  - **Project tools (5 new):**
+    - `list_project_gems` — list gems enabled in a specific project
+    - `register_engine`, `set_active_engine` — engine registration
+    - `start_build`, `get_build_status` — async background builds with process tracking
+  - **Asset tools (5 new, new `assets.py` module):**
+    - `get_asset_processor_status`, `wait_for_assets`, `refresh_assets` — AP monitoring
+    - `tail_log`, `get_log_errors` — log file reading and error extraction
+  - **Introspection tools (2 new):**
+    - `get_bus_schema_live` — live BehaviorContext queries with stub fallback
+    - `capture_renderdoc_frame` — RenderDoc capture trigger for cross-MCP workflow
+- `live_editor` pytest marker for integration tests requiring a running editor
+  (skipped unless `O3DE_LIVE_EDITOR_TEST=1`)
+- New tool categories in `get_capabilities`: `asset_tools`, `introspection_tools`
+- New validators: `_validate_vec3`, `_validate_console_command`, `_validate_prefab_path`
+- `atexit` handler to terminate orphaned background build processes
+
+### Changed
+
+- `get_capabilities` now reports 5 tool categories (was 3): added `asset_tools`
+  and `introspection_tools`
+
+### Fixed — O3DE 2.7.0 API compatibility
+
+- **`run_console_command` / `set_cvar` / `get_cvar`**: Fixed CVAR name casing
+  (`r_displayInfo` → `r_DisplayInfo`). O3DE CVARs are case-sensitive.
+- **`capture_viewport`**: Replaced the non-existent `r_ScreenShot` console command
+  (CryEngine legacy, removed in O3DE 2.7.0) with a PySide6 `QWidget.grab()` of the
+  editor's `ViewportUiOverlay` widget. This captures just the 3D viewport, not the
+  full screen.
+- **`get_viewport_camera`**: Replaced broken `EditorCameraRequestBus` EBus calls
+  (which return `None` in the Python bindings) with
+  `general.get_current_view_position()` / `get_current_view_rotation()`. Rotation
+  is now 3-element Euler angles (was 4-element quaternion). FOV is no longer
+  reported (not available via the Python bindings).
+- **`set_viewport_camera`**: Replaced `ed_cameraPos` / `ed_cameraRot` console
+  commands with `general.set_current_view_position()` /
+  `set_current_view_rotation()` using `math.Vector3`. Rotation validation now
+  expects 3 elements (Euler angles) instead of 4 (quaternion).
+
+### Fixed — connection pool robustness
+
+- **Event-loop safety**: `_EditorConnectionPool` now detects when the asyncio
+  event loop has changed (e.g. `asyncio.run()` creates a new loop each call) and
+  recreates the `asyncio.Lock`, force-closes the dead-loop socket, and reconnects.
+  Previously, a loop change caused `RuntimeError` or stale-connection hangs.
+- **Connection retry**: Added 3-attempt retry with backoff for the AgentServer's
+  single-client connection policy. Rapid reconnects after closing a previous
+  connection could be refused.
+- **Fast-fail window**: Reduced from 5s to 1s to prevent cascading test failures
+  when a single connection error briefly marks the editor as unreachable.
+
+### Fixed — tests
+
+- `test_live_editor.py`: Reuse a single event loop across all live tests to
+  avoid unnecessary reconnect churn with the AgentServer's single-client policy.
+- `test_live_no_editor.py`: Replaced runtime `_skip_if_editor_running()` socket
+  probes with a `@requires_no_editor` pytest marker (evaluated once at import).
+- `test_project.py` / `test_live_no_editor.py`: Updated `get_build_status` empty-
+  ID tests to expect a `ValueError` (raised by the tool) instead of a JSON error
+  response.
+
+### Previous additions
+
 - `O3DE_EDITOR_TIMEOUT` env var (default: **600s**) for the per-command editor
   execution timeout, so slower editor operations are not cut off. The editor
   runs each script synchronously and does not reply until it finishes, so this

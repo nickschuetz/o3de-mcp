@@ -3,20 +3,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 
-"""Runtime capability probing for the O3DE MCP server.
-
-Detects whether the O3DE Editor is reachable via its remote console socket
-and whether the O3DE CLI is available, so that agents can make informed
-decisions about which tools to use.
-
-Tool categories are discovered dynamically from the FastMCP tool registry,
-so new tools added in the future are automatically reported.
-"""
+"""Runtime capability probing for the O3DE MCP server."""
 
 from __future__ import annotations
 
 import asyncio
 import enum
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -28,8 +21,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Known tool names by category. Tools not in any of these sets are reported
-# in an "other_tools" category, ensuring new tools are never silently hidden.
 _EDITOR_TOOLS = frozenset(
     {
         "run_editor_python",
@@ -41,13 +32,34 @@ _EDITOR_TOOLS = frozenset(
         "add_component",
         "get_component_property",
         "set_component_property",
+        "assign_asset",
+        "remove_component",
+        "set_transform",
+        "get_transform",
+        "set_parent",
+        "run_console_command",
+        "get_cvar",
+        "set_cvar",
         "load_level",
         "get_level_info",
         "save_level",
+        "create_level",
+        "list_levels",
         "enter_game_mode",
         "exit_game_mode",
         "undo",
         "redo",
+        "get_viewport_camera",
+        "set_viewport_camera",
+        "focus_entity",
+        "capture_viewport",
+        "instantiate_prefab",
+        "create_prefab_from_entity",
+        "save_prefab",
+        "begin_session",
+        "exec_in_session",
+        "end_session",
+        "get_session_vars",
     }
 )
 
@@ -56,6 +68,7 @@ _PROJECT_TOOLS = frozenset(
         "get_engine_info",
         "list_projects",
         "list_gems",
+        "list_project_gems",
         "create_project",
         "register_gem",
         "enable_gem",
@@ -65,6 +78,28 @@ _PROJECT_TOOLS = frozenset(
         "edit_project_properties",
         "list_templates",
         "build_project",
+        "register_engine",
+        "set_active_engine",
+        "start_build",
+        "get_build_status",
+    }
+)
+
+_ASSET_TOOLS = frozenset(
+    {
+        "get_asset_processor_status",
+        "wait_for_assets",
+        "refresh_assets",
+        "tail_log",
+        "get_log_errors",
+    }
+)
+
+_INTROSPECTION_TOOLS = frozenset(
+    {
+        "get_bus_schema",
+        "get_bus_schema_live",
+        "capture_renderdoc_frame",
     }
 )
 
@@ -88,26 +123,35 @@ async def probe_editor_connection(
     port: int | None = None,
     timeout: float = 2.0,
 ) -> EditorStatus:
-    """Perform a lightweight TCP connect check against the editor.
+    """Lightweight ping check against the editor via the connection pool."""
+    from o3de_mcp.tools.editor import _pool
 
-    Does not send any commands — only verifies that the port is listening.
-    """
     host = host or _get_editor_host()
     port = port or _get_editor_port()
+
+    _pool._last_failure_time = None
+
     try:
-        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
-        writer.close()
-        await writer.wait_closed()
-        return EditorStatus.CONNECTED
-    except (ConnectionRefusedError, TimeoutError, asyncio.TimeoutError, OSError):
+        result = await _pool.send_script("print('ping')", host=host, port=port, timeout=timeout)
+        try:
+            parsed = json.loads(result)
+            if parsed.get("status") == "error":
+                code = parsed.get("code", "")
+                if code in ("connection_refused", "timeout", "socket_error",
+                            "editor_unavailable", "connection_error"):
+                    return EditorStatus.UNREACHABLE
+                return EditorStatus.CONNECTED
+            return EditorStatus.CONNECTED
+        except (json.JSONDecodeError, TypeError):
+            return EditorStatus.CONNECTED
+    except (ConnectionRefusedError, ConnectionError, TimeoutError, asyncio.TimeoutError, OSError):
         return EditorStatus.UNREACHABLE
+    finally:
+        await _pool._close()
 
 
 def probe_cli() -> dict:
-    """Check whether the O3DE CLI is available.
-
-    Returns a dict with ``available``, ``path``, and ``engine_version`` keys.
-    """
+    """Check whether the O3DE CLI is available."""
     cli = find_o3de_cli()
     engine = find_o3de_engine_path()
     version = find_o3de_engine_version()
@@ -120,16 +164,13 @@ def probe_cli() -> dict:
 
 
 def _discover_tool_categories(mcp: FastMCP | None) -> dict:
-    """Dynamically categorize registered tools from the FastMCP instance.
-
-    Any tool not in a known category is reported under ``other_tools``,
-    ensuring newly added tools are never silently hidden.
-    """
+    """Categorize registered tools from the FastMCP instance."""
     if mcp is None:
-        # Fallback when mcp instance is not available (e.g., unit tests)
         return {
             "editor_tools": list(_EDITOR_TOOLS),
             "project_tools": list(_PROJECT_TOOLS),
+            "asset_tools": list(_ASSET_TOOLS),
+            "introspection_tools": list(_INTROSPECTION_TOOLS),
             "capabilities_tools": list(_CAPABILITIES_TOOLS),
         }
 
@@ -142,17 +183,22 @@ def _discover_tool_categories(mcp: FastMCP | None) -> dict:
         return {
             "editor_tools": list(_EDITOR_TOOLS),
             "project_tools": list(_PROJECT_TOOLS),
+            "asset_tools": list(_ASSET_TOOLS),
+            "introspection_tools": list(_INTROSPECTION_TOOLS),
             "capabilities_tools": list(_CAPABILITIES_TOOLS),
         }
 
     categorized: dict[str, list[str]] = {
         "editor_tools": sorted(registered & _EDITOR_TOOLS),
         "project_tools": sorted(registered & _PROJECT_TOOLS),
+        "asset_tools": sorted(registered & _ASSET_TOOLS),
+        "introspection_tools": sorted(registered & _INTROSPECTION_TOOLS),
         "capabilities_tools": sorted(registered & _CAPABILITIES_TOOLS),
     }
 
-    # Catch any tools that don't belong to a known category
-    known = _EDITOR_TOOLS | _PROJECT_TOOLS | _CAPABILITIES_TOOLS
+    known = (
+        _EDITOR_TOOLS | _PROJECT_TOOLS | _ASSET_TOOLS | _INTROSPECTION_TOOLS | _CAPABILITIES_TOOLS
+    )
     other = sorted(registered - known)
     if other:
         categorized["other_tools"] = other
@@ -161,13 +207,7 @@ def _discover_tool_categories(mcp: FastMCP | None) -> dict:
 
 
 async def get_server_capabilities(mcp: FastMCP | None = None) -> dict:
-    """Aggregate editor and CLI probing into a single capabilities report.
-
-    Args:
-        mcp: The FastMCP server instance. When provided, tool categories
-             are discovered dynamically from the registry. When ``None``,
-             falls back to the known built-in tool sets.
-    """
+    """Aggregate editor and CLI probing into a single capabilities report."""
     host = _get_editor_host()
     port = _get_editor_port()
     editor_status = await probe_editor_connection(host, port)
@@ -198,8 +238,13 @@ async def get_server_capabilities(mcp: FastMCP | None = None) -> dict:
         elif category_name == "project_tools":
             available = cli_info["available"]
             reason = None if available else "O3DE CLI not found"
+        elif category_name == "asset_tools":
+            available = cli_info["available"]
+            reason = None if available else "O3DE CLI/engine not found"
+        elif category_name == "introspection_tools":
+            available = editor_connected
+            reason = None if available else "Editor not connected"
         else:
-            # Unknown category — report as available (conservative default)
             available = True
             reason = None
 

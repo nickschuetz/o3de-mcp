@@ -7,6 +7,21 @@ build/
 .ruff_cache/
 *.pyc
 
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor local files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
 # Generated SBOM files (regenerate with python scripts/generate-sbom.py)
 sbom.cdx.json
 sbom.cdx.xml

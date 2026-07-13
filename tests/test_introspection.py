@@ -169,3 +169,138 @@ class TestGetBusSchema:
     def test_missing_dump_raises(self, tmp_path: Path) -> None:
         with pytest.raises(LookupError):
             get_bus_schema(project_path=str(tmp_path))
+
+
+# --- Phase 10: Live bus schema + RenderDoc integration tool tests ---
+
+
+class TestGetBusSchemaLive:
+    """Tests for the get_bus_schema_live MCP tool."""
+
+    def test_live_query_success(self) -> None:
+        """When the editor returns live schema, it's returned directly."""
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.introspection import register_introspection_tools
+
+        live_json = json.dumps(
+            {"source": "live", "module": "physics", "bus": "PhysicsRequestBus", "events": []}
+        )
+
+        async def run() -> str:
+            mcp = FastMCP("test")
+            register_introspection_tools(mcp)
+            with patch(
+                "o3de_mcp.tools.editor._async_run_editor_script",
+                new_callable=AsyncMock,
+                return_value=live_json,
+            ):
+                content, _ = await mcp.call_tool(
+                    "get_bus_schema_live",
+                    {"module": "physics", "bus": "PhysicsRequestBus"},
+                )
+                return content[0].text
+
+        result = asyncio.run(run())
+        parsed = json.loads(result)
+        assert parsed["source"] == "live"
+        assert parsed["module"] == "physics"
+
+    def test_falls_back_to_stubs_on_error(self, tmp_path: Path) -> None:
+        """When the editor is unreachable, falls back to stub-based schema."""
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.introspection import register_introspection_tools
+
+        # Create a project with a stub so the fallback can find it
+        _make_project(tmp_path, "diorama", SAMPLE_STUB)
+
+        error_response = json.dumps({"source": "error", "error": "Connection refused"})
+
+        async def run() -> str:
+            mcp = FastMCP("test")
+            register_introspection_tools(mcp)
+            with patch(
+                "o3de_mcp.tools.editor._async_run_editor_script",
+                new_callable=AsyncMock,
+                return_value=error_response,
+            ):
+                content, _ = await mcp.call_tool(
+                    "get_bus_schema_live",
+                    {
+                        "module": "diorama",
+                        "bus": "DioramaSpriteRequestBus",
+                        "project_path": str(tmp_path),
+                    },
+                )
+                return content[0].text
+
+        result = asyncio.run(run())
+        parsed = json.loads(result)
+        assert parsed["source"] == "stub_fallback"
+
+
+class TestCaptureRenderdocFrame:
+    """Tests for the capture_renderdoc_frame MCP tool."""
+
+    def test_triggers_capture(self) -> None:
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.introspection import register_introspection_tools
+
+        capture_json = json.dumps({"status": "ok", "message": "RenderDoc frame capture triggered."})
+
+        async def run() -> str:
+            mcp = FastMCP("test")
+            register_introspection_tools(mcp)
+            with patch(
+                "o3de_mcp.tools.editor._async_run_editor_script",
+                new_callable=AsyncMock,
+                return_value=capture_json,
+            ):
+                content, _ = await mcp.call_tool("capture_renderdoc_frame", {})
+                return content[0].text
+
+        result = asyncio.run(run())
+        parsed = json.loads(result)
+        assert parsed["status"] == "ok"
+        assert "next_steps" in parsed
+        assert "renderdoc-mcp" in parsed["next_steps"]
+
+    def test_handles_error(self) -> None:
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.introspection import register_introspection_tools
+
+        error_json = json.dumps({"status": "error", "message": "RenderDoc not attached."})
+
+        async def run() -> str:
+            mcp = FastMCP("test")
+            register_introspection_tools(mcp)
+            with patch(
+                "o3de_mcp.tools.editor._async_run_editor_script",
+                new_callable=AsyncMock,
+                return_value=error_json,
+            ):
+                content, _ = await mcp.call_tool("capture_renderdoc_frame", {})
+                return content[0].text
+
+        result = asyncio.run(run())
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"

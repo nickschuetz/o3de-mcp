@@ -43,8 +43,27 @@ Returns JSON. With no module: `{symbols_dir, modules}`. With a module:
 name, args, returns}]}], note}`.
 
 > **Note:** The generated stub lists EBus event arguments by type only. For
-> argument names and tooltips, use the editor-side `GetBusSchema` event on the
-> AiCompanion gem's request bus, which reads the C++ BehaviorContext.
+> argument names and tooltips, use `get_bus_schema_live` (below) which queries
+> the running editor's BehaviorContext.
+
+### get_bus_schema_live
+
+Query the running editor's BehaviorContext for a bus schema. Falls back to
+`get_bus_schema` (stub-based) if the editor is unreachable.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `module` | str | yes | azlmbr submodule name (e.g. `physics`) |
+| `bus` | str | yes | Bus name (e.g. `PhysicsRequestBus`) |
+| `project_path` | str | no | Project path for fallback stub resolution |
+
+Returns JSON with a `source` field: `"live"` or `"stub_fallback"`.
+
+### capture_renderdoc_frame
+
+Trigger a RenderDoc frame capture in the O3DE editor. Sends the
+`r_captureFrame` console command. After capture, use the `renderdoc-mcp` MCP
+server tools to analyze the frame. No parameters.
 
 ---
 
@@ -135,6 +154,83 @@ Set a property value on a component.
 | `property_path` | str | yes | Property path with `\|` separator |
 | `value` | str | yes | Value as string (`true`/`false` for bools, numbers as strings) |
 
+### assign_asset
+
+Assign an asset to a component property by resolving the asset path to an O3DE asset ID.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity ID |
+| `component_type` | str | yes | Component type name |
+| `property_path` | str | yes | Property path with `\|` separator |
+| `asset_path` | str | yes | Project-relative asset path (e.g. `Objects/Props/box.fbx`) |
+
+### remove_component
+
+Remove a component from an entity.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity ID |
+| `component_type` | str | yes | Component type name to remove |
+
+### set_transform
+
+Set the world transform of an entity. Only provided components are changed.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity ID |
+| `position` | list[float] | no | [x, y, z] world position |
+| `rotation` | list[float] | no | [x, y, z, w] quaternion rotation (4 elements) |
+| `scale` | list[float] | no | [x, y, z] scale |
+
+### get_transform
+
+Get the world transform of an entity.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity ID |
+
+Returns JSON: `{"position": [x,y,z], "rotation": [x,y,z,w], "scale": [x,y,z]}`
+
+### set_parent
+
+Set the parent of an entity (reparent in the hierarchy).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity ID to reparent |
+| `parent_id` | str | yes | New parent entity ID |
+
+### run_console_command
+
+Execute an O3DE console command in the running editor.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | str | yes | Console command (e.g. `r_fog 0`, `loadlevel Levels/MyLevel`) |
+
+### get_cvar
+
+Get the value of an O3DE console variable.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | CVAR name (e.g. `r_fog`) |
+
+Returns JSON: `{"name": "...", "value": "..."}`
+
+### set_cvar
+
+Set the value of an O3DE console variable.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | CVAR name |
+| `value` | str | yes | Value as string |
+
 ### load_level
 
 Open a level in the editor.
@@ -152,6 +248,24 @@ Returns JSON: `{"level_name": "...", "level_path": "..."}`
 
 Save the currently open level. No parameters.
 
+### create_level
+
+Create a new empty level in the current project.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Level name (alphanumeric, starts with letter) |
+
+### list_levels
+
+List all levels in a project.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_path` | str | no | Project path (auto-resolves if omitted) |
+
+Returns JSON: `{"levels": [...], "project": "..."}`
+
 ### enter_game_mode
 
 Enter play-in-editor mode. No parameters.
@@ -167,6 +281,95 @@ Undo the last editor action. No parameters.
 ### redo
 
 Redo the last undone action. No parameters.
+
+### get_viewport_camera
+
+Get the active editor viewport camera transform. No parameters.
+Returns JSON: `{"position": [...], "rotation": [...], "fov": ...}`
+
+### set_viewport_camera
+
+Set the active editor viewport camera transform.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `position` | list[float] | no | [x, y, z] camera position |
+| `rotation` | list[float] | no | [x, y, z, w] quaternion rotation |
+
+### focus_entity
+
+Focus the viewport camera on an entity.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity ID to focus on |
+
+### capture_viewport
+
+Capture a screenshot of the editor viewport.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `output_path` | str | yes | File path (must end in .png/.jpg/.bmp/.tga) |
+| `width` | int | no | Capture width in pixels |
+| `height` | int | no | Capture height in pixels |
+
+### instantiate_prefab
+
+Instantiate a prefab in the current level.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prefab_path` | str | yes | Path to .prefab file |
+| `position` | list[float] | no | [x, y, z] spawn position (defaults to origin) |
+| `parent_id` | str | no | Parent entity ID |
+
+### create_prefab_from_entity
+
+Create a prefab file from an existing entity.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity ID to create prefab from |
+| `prefab_path` | str | yes | Path for the new .prefab file |
+
+### save_prefab
+
+Save a prefab instance (propagate entity changes to the prefab file).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Root entity ID of the prefab instance |
+
+### begin_session
+
+Begin a persistent Python session in the editor. No parameters.
+Returns JSON: `{"session_id": "..."}`
+
+### exec_in_session
+
+Execute Python code in a persistent session. Variables persist across calls.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `session_id` | str | yes | Session ID from `begin_session` |
+| `script` | str | yes | Python code to execute |
+
+### end_session
+
+End a persistent Python session and clean up.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `session_id` | str | yes | Session ID from `begin_session` |
+
+### get_session_vars
+
+List variable names in a persistent session (names only, not values).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `session_id` | str | yes | Session ID from `begin_session` |
 
 ---
 
@@ -271,6 +474,114 @@ Edit properties of an existing project.
 
 List available project and gem templates. No parameters.
 Returns JSON array of template objects with name, summary, and path.
+
+### list_project_gems
+
+List gems enabled in a specific project.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_path` | str | yes | Path to the O3DE project |
+
+Returns JSON: `{"gems": [...], "count": N, "project_path": "..."}`
+
+### register_engine
+
+Register an O3DE engine installation with the manifest.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `engine_path` | str | yes | Path to engine root (must contain engine.json) |
+
+### set_active_engine
+
+Set the active O3DE engine by name (in-process, not persistent).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Engine name |
+
+### start_build
+
+Start a CMake build in the background and return a build ID.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_path` | str | yes | Path to project (must have a build directory) |
+| `config` | str | no | `debug`, `profile`, or `release` (default: `profile`) |
+| `target` | str | no | Build target (e.g. `Editor`). Omit to build all. |
+
+Returns JSON: `{"build_id": "...", "status": "running", ...}`
+
+### get_build_status
+
+Check the status of a background build.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `build_id` | str | yes | Build ID from `start_build` |
+
+Returns JSON: `{"status": "running|completed|failed", "returncode": N, "output": "..."}`
+
+---
+
+## Asset Tools
+
+Monitor the Asset Processor and read diagnostic log files. These tools work
+with the filesystem and process list — they do not require a running editor.
+
+### get_asset_processor_status
+
+Check whether the O3DE Asset Processor is running.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_path` | str | no | Project path (for log directory info) |
+
+Returns JSON: `{"running": bool, "log_dir": "...", "project": "..."}`
+
+### wait_for_assets
+
+Wait for the Asset Processor to finish processing (or until timeout).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `timeout` | int | no | Maximum wait in seconds (default: 300) |
+
+Returns JSON: `{"completed": bool, "elapsed": float}`
+
+### refresh_assets
+
+Trigger an Asset Processor rescan for a project.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_path` | str | no | Project path (auto-resolves if omitted) |
+
+### tail_log
+
+Read the last N lines of an O3DE log file.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `log_name` | str | yes | Log name: `Editor`, `AssetProcessor`, `CMakeOutput` |
+| `lines` | int | no | Number of lines (default: 50) |
+| `filter` | str | no | Regex pattern to filter lines |
+| `project_path` | str | no | Project path (auto-resolves if omitted) |
+
+Returns JSON: `{"log_name": "...", "lines": [...], "count": N}`
+
+### get_log_errors
+
+Extract error lines from an O3DE log file.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `log_name` | str | no | Log name (default: `Editor`) |
+| `since_lines` | int | no | Lines to scan (default: 200) |
+| `project_path` | str | no | Project path (auto-resolves if omitted) |
+
+Returns JSON: `{"errors": [...], "count": N}`
 
 ---
 
