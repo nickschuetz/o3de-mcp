@@ -67,8 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Connection retry**: Added 3-attempt retry with backoff for the AgentServer's
   single-client connection policy. Rapid reconnects after closing a previous
   connection could be refused.
-- **Fast-fail window**: Reduced from 5s to 1s to prevent cascading test failures
-  when a single connection error briefly marks the editor as unreachable.
+- **Lock lifetime**: The pool tracks the event loop that owns its `asyncio.Lock`
+  separately from the connection's loop, so the lock is recreated only on an
+  actual loop change (not on every reconnect). This keeps concurrent calls
+  serialized against the single-client AgentServer. The fast-fail window stays
+  at 5s.
 
 ### Fixed — tests
 
@@ -79,6 +82,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `test_project.py` / `test_live_no_editor.py`: Updated `get_build_status` empty-
   ID tests to expect a `ValueError` (raised by the tool) instead of a JSON error
   response.
+
+### Fixed — post-merge follow-ups
+
+- **`get_build_status`**: Wait (bounded) for the output drain thread to flush
+  before reading and evicting a finished build, so a failed build's final error
+  lines are no longer lost to a race between process exit and the drain thread.
+- **`get_capabilities`**: Report `introspection_tools` as available even when the
+  editor is disconnected — `get_bus_schema` reads `.pyi` stubs from disk and does
+  not need a running editor (only `get_bus_schema_live` and
+  `capture_renderdoc_frame` do).
+- **Live tests**: `get_bus_schema_live` test passes `project_path` so the stub
+  fallback resolves on machines with several stub dumps (and accepts the
+  `stub_fallback_failed` status); `get_asset_processor_status` test tolerates the
+  Asset Processor being down; the transform test also handles a bracketed
+  `[EntityId]` create-entity form.
+- **CI robustness**: `test_cli_available` and `test_get_engine_info` now depend
+  on the existing `engine_path` fixture, so they skip when no O3DE engine is
+  installed instead of failing on a bare CI runner.
+- **Test deadlock**: `TestProtocolRoundTrip`'s fake-server round-trip tests tear
+  down the test server with a bounded `wait_closed()`, so they no longer
+  intermittently hang the suite on Python 3.12+ (an asyncio `wait_closed`
+  deadlock waiting on a lingering connection-handler task).
+- Applied `ruff format` to `test_capabilities.py` and `test_live_no_editor.py`.
 
 ### Previous additions
 

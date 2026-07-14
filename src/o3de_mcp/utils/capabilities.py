@@ -137,8 +137,13 @@ async def probe_editor_connection(
             parsed = json.loads(result)
             if parsed.get("status") == "error":
                 code = parsed.get("code", "")
-                if code in ("connection_refused", "timeout", "socket_error",
-                            "editor_unavailable", "connection_error"):
+                if code in (
+                    "connection_refused",
+                    "timeout",
+                    "socket_error",
+                    "editor_unavailable",
+                    "connection_error",
+                ):
                     return EditorStatus.UNREACHABLE
                 return EditorStatus.CONNECTED
             return EditorStatus.CONNECTED
@@ -242,8 +247,11 @@ async def get_server_capabilities(mcp: FastMCP | None = None) -> dict:
             available = cli_info["available"]
             reason = None if available else "O3DE CLI/engine not found"
         elif category_name == "introspection_tools":
-            available = editor_connected
-            reason = None if available else "Editor not connected"
+            # get_bus_schema reads .pyi stubs from disk and works without a
+            # running editor; only get_bus_schema_live / capture_renderdoc_frame
+            # need the connection, which the editor status already conveys.
+            available = True
+            reason = None
         else:
             available = True
             reason = None

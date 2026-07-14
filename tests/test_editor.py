@@ -371,17 +371,22 @@ class TestProtocolRoundTrip:
 
             server = await asyncio.start_server(handle, "127.0.0.1", 0)
             port = server.sockets[0].getsockname()[1]
-            async with server:
-                pool = _EditorConnectionPool()
+            pool = _EditorConnectionPool()
+            try:
+                return await pool.send_script(
+                    "print('x')", host="127.0.0.1", port=port, timeout=2.0
+                )
+            finally:
+                # Close the pooled connection so the server's handler stops
+                # awaiting, then tear the server down without letting
+                # wait_closed() block forever on a lingering handler task
+                # (a Python 3.12+ asyncio deadlock that can hang the suite).
+                await pool._close()
+                server.close()
                 try:
-                    return await pool.send_script(
-                        "print('x')", host="127.0.0.1", port=port, timeout=2.0
-                    )
-                finally:
-                    # Close the pooled connection so the server's handler stops
-                    # awaiting and the context manager can tear down (otherwise
-                    # wait_closed blocks on the live connection on Python 3.12+).
-                    await pool._close()
+                    await asyncio.wait_for(server.wait_closed(), timeout=2.0)
+                except (asyncio.TimeoutError, TimeoutError):
+                    pass
 
         assert asyncio.run(run()) == "framed-output"
 
@@ -410,14 +415,20 @@ class TestProtocolRoundTrip:
 
             server = await asyncio.start_server(handle, "127.0.0.1", 0)
             port = server.sockets[0].getsockname()[1]
-            async with server:
-                pool = _EditorConnectionPool()
+            pool = _EditorConnectionPool()
+            try:
+                return await pool.send_script(
+                    "print('x')", host="127.0.0.1", port=port, timeout=2.0
+                )
+            finally:
+                # See test_agent_server_framed_round_trip: avoid the 3.12+
+                # wait_closed() deadlock during teardown.
+                await pool._close()
+                server.close()
                 try:
-                    return await pool.send_script(
-                        "print('x')", host="127.0.0.1", port=port, timeout=2.0
-                    )
-                finally:
-                    await pool._close()
+                    await asyncio.wait_for(server.wait_closed(), timeout=2.0)
+                except (asyncio.TimeoutError, TimeoutError):
+                    pass
 
         assert "legacy-output" in asyncio.run(run())
 
