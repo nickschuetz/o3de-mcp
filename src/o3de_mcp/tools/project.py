@@ -69,6 +69,14 @@ class _BuildProcess:
     def poll(self) -> int | None:
         return self._proc.poll()
 
+    def join(self, timeout: float = 2.0) -> None:
+        """Wait (bounded) for the drain thread to flush the final output.
+
+        Called once the process has exited so the tail of the log (the error
+        message on a failed build) is captured before the buffer is read.
+        """
+        self._thread.join(timeout)
+
     def get_output(self, max_chars: int = 2000) -> str:
         """Return the tail of the buffered output (up to *max_chars*)."""
         with self._lock:
@@ -694,16 +702,19 @@ def register_project_tools(mcp: FastMCP) -> None:
         if build is None:
             return _format_error("not_found", f"No build found with ID {build_id!r}.")
 
-        output = build.get_output(max_chars=2000)
         returncode = build.poll()
         if returncode is None:
             status = "running"
-        elif returncode == 0:
-            status = "completed"
-            _BUILDS.pop(build_id, None)
         else:
-            status = "failed"
+            # The process has exited. Wait (bounded) for the drain thread to
+            # flush any remaining buffered lines before reading and evicting,
+            # otherwise a poll landing at completion can return truncated
+            # output and delete the build, losing a failed build's error tail.
+            build.join()
+            status = "completed" if returncode == 0 else "failed"
             _BUILDS.pop(build_id, None)
+
+        output = build.get_output(max_chars=2000)
 
         return json.dumps(
             {

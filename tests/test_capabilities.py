@@ -40,11 +40,13 @@ class TestProbeEditorConnection:
                         length = struct.unpack(">I", header)[0]
                         body = await reader.readexactly(length)
                         req = _json.loads(body.decode())
-                        resp = _json.dumps({
-                            "id": req.get("id", "test"),
-                            "status": "ok",
-                            "output": "pong" if req.get("type") == "ping" else "",
-                        }).encode()
+                        resp = _json.dumps(
+                            {
+                                "id": req.get("id", "test"),
+                                "status": "ok",
+                                "output": "pong" if req.get("type") == "ping" else "",
+                            }
+                        ).encode()
                         writer.write(struct.pack(">I", len(resp)) + resp)
                         await writer.drain()
                 except Exception:

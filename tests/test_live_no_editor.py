@@ -105,7 +105,9 @@ class TestCapabilities:
     def test_all_tools_registered(self, mcp_server: FastMCP) -> None:
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
+
             return EditorStatus.UNREACHABLE
+
         with patch("o3de_mcp.utils.capabilities.probe_editor_connection", side_effect=_mock_probe):
             result = _run(_call(mcp_server, "get_capabilities"))
         parsed = json.loads(result)
@@ -123,7 +125,9 @@ class TestCapabilities:
     def test_no_other_tools_category(self, mcp_server: FastMCP) -> None:
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
+
             return EditorStatus.UNREACHABLE
+
         with patch("o3de_mcp.utils.capabilities.probe_editor_connection", side_effect=_mock_probe):
             result = _run(_call(mcp_server, "get_capabilities"))
         parsed = json.loads(result)
@@ -138,7 +142,9 @@ class TestCapabilities:
     def test_cli_available(self, mcp_server: FastMCP) -> None:
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
+
             return EditorStatus.UNREACHABLE
+
         with patch("o3de_mcp.utils.capabilities.probe_editor_connection", side_effect=_mock_probe):
             result = _run(_call(mcp_server, "get_capabilities"))
         parsed = json.loads(result)
@@ -621,12 +627,12 @@ class TestAllToolsCallable:
 
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
+
             return EditorStatus.UNREACHABLE
 
         async def _mock_send_script(*a, **kw):
             return (
-                '{"status": "error", "code": "connection_refused", '
-                '"message": "Editor not running"}'
+                '{"status": "error", "code": "connection_refused", "message": "Editor not running"}'
             )
 
         for tool_name in tool_names:
