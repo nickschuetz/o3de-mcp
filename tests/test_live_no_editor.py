@@ -139,7 +139,7 @@ class TestCapabilities:
         parsed = json.loads(result)
         assert parsed["editor"]["status"] in ("unreachable", "connected")
 
-    def test_cli_available(self, mcp_server: FastMCP) -> None:
+    def test_cli_available(self, mcp_server: FastMCP, engine_path: str) -> None:
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
 
@@ -153,7 +153,7 @@ class TestCapabilities:
 
 
 class TestProjectTools:
-    def test_get_engine_info(self, mcp_server: FastMCP) -> None:
+    def test_get_engine_info(self, mcp_server: FastMCP, engine_path: str) -> None:
         result = _run(_call(mcp_server, "get_engine_info"))
         parsed = json.loads(result)
         assert "engine_path" in parsed

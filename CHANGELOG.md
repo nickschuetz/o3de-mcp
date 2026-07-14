@@ -97,6 +97,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stub_fallback_failed` status); `get_asset_processor_status` test tolerates the
   Asset Processor being down; the transform test also handles a bracketed
   `[EntityId]` create-entity form.
+- **CI robustness**: `test_cli_available` and `test_get_engine_info` now depend
+  on the existing `engine_path` fixture, so they skip when no O3DE engine is
+  installed instead of failing on a bare CI runner.
 - Applied `ruff format` to `test_capabilities.py` and `test_live_no_editor.py`.
 
 ### Previous additions
