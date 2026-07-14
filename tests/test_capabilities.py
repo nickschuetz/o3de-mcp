@@ -29,11 +29,33 @@ class TestProbeEditorConnection:
         """Verify CONNECTED status when a server is actually listening."""
 
         async def run() -> EditorStatus:
-            # Start a temporary TCP server
-            server = await asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
+            import json as _json
+            import struct
+
+            async def handle(reader, writer):
+                """Handle framed requests (ping + script) on one connection."""
+                try:
+                    while True:
+                        header = await reader.readexactly(4)
+                        length = struct.unpack(">I", header)[0]
+                        body = await reader.readexactly(length)
+                        req = _json.loads(body.decode())
+                        resp = _json.dumps({
+                            "id": req.get("id", "test"),
+                            "status": "ok",
+                            "output": "pong" if req.get("type") == "ping" else "",
+                        }).encode()
+                        writer.write(struct.pack(">I", len(resp)) + resp)
+                        await writer.drain()
+                except Exception:
+                    pass
+                finally:
+                    writer.close()
+
+            server = await asyncio.start_server(handle, "127.0.0.1", 0)
             port = server.sockets[0].getsockname()[1]
             try:
-                return await probe_editor_connection(host="127.0.0.1", port=port, timeout=1.0)
+                return await probe_editor_connection(host="127.0.0.1", port=port, timeout=2.0)
             finally:
                 server.close()
                 await server.wait_closed()

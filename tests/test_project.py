@@ -367,6 +367,22 @@ class TestManifestCache:
 class TestBuildDirectorySymlink:
     def test_symlink_build_dir_rejected(self, tmp_path: Path) -> None:
         """Verify that build_project rejects a symlinked build directory."""
+        # Skip on Windows when symlink privilege is not available (WinError 1314)
+        import platform as _platform
+
+        if _platform.system() == "Windows":
+            try:
+                test_link = tmp_path / "_symlink_test"
+                test_target = tmp_path / "_symlink_target"
+                test_target.mkdir()
+                test_link.symlink_to(test_target)
+                test_link.unlink()
+                test_target.rmdir()
+            except OSError:
+                pytest.skip(
+                    "Symlink creation requires administrator privileges on Windows "
+                    "(WinError 1314). Run pytest as admin or enable Developer Mode."
+                )
 
         project_dir = tmp_path / "MyProject"
         project_dir.mkdir()
@@ -540,3 +556,217 @@ class TestCliFallback:
 
                 result = find_o3de_cli()
                 assert result == fallback_script
+
+
+# --- Phase 7: list_project_gems tests ---
+
+
+class TestListProjectGems:
+    def test_lists_gems(self, tmp_path: Path) -> None:
+        project_json = tmp_path / "project.json"
+        project_json.write_text(
+            json.dumps({"project_name": "TestProject", "gem_names": ["Atom", "PhysX5", "Terrain"]})
+        )
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(
+            mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
+        )
+        parsed = json.loads(content[0].text)
+        assert parsed["gems"] == ["Atom", "PhysX5", "Terrain"]
+        assert parsed["count"] == 3
+
+    def test_no_gems(self, tmp_path: Path) -> None:
+        project_json = tmp_path / "project.json"
+        project_json.write_text(json.dumps({"project_name": "EmptyProject"}))
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(
+            mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
+        )
+        parsed = json.loads(content[0].text)
+        assert parsed["gems"] == []
+        assert parsed["count"] == 0
+
+    def test_missing_project_json(self, tmp_path: Path) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(
+            mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
+        )
+        parsed = json.loads(content[0].text)
+        assert parsed["status"] == "error"
+
+    def test_invalid_json(self, tmp_path: Path) -> None:
+        project_json = tmp_path / "project.json"
+        project_json.write_text("not valid json {{{")
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(
+            mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
+        )
+        parsed = json.loads(content[0].text)
+        assert parsed["status"] == "error"
+
+
+# --- Phase 8: Engine registration + async build tests ---
+
+
+class TestRegisterEngine:
+    def test_registers_engine(self, tmp_path: Path) -> None:
+        engine_json = tmp_path / "engine.json"
+        engine_json.write_text(json.dumps({"engine_name": "o3de"}))
+
+        mock_result = subprocess.CompletedProcess(
+            args=["o3de.bat", "register", "--engine-path", str(tmp_path)],
+            returncode=0,
+            stdout="Engine registered",
+            stderr="",
+        )
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=mock_result):
+            from mcp.server.fastmcp import FastMCP
+
+            from o3de_mcp.tools.project import register_project_tools
+
+            mcp = FastMCP("test")
+            register_project_tools(mcp)
+            import asyncio
+
+            content, _ = asyncio.run(
+                mcp.call_tool("register_engine", {"engine_path": str(tmp_path)})
+            )
+            assert "registered" in content[0].text.lower()
+
+    def test_missing_engine_json(self, tmp_path: Path) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(mcp.call_tool("register_engine", {"engine_path": str(tmp_path)}))
+        parsed = json.loads(content[0].text)
+        assert parsed["status"] == "error"
+
+
+class TestSetActiveEngine:
+    def test_sets_env_var(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        with patch.dict("os.environ", {}, clear=True):
+            content, _ = asyncio.run(mcp.call_tool("set_active_engine", {"name": "o3de"}))
+            assert "o3de" in content[0].text
+            assert os.environ.get("O3DE_ENGINE_NAME") == "o3de"
+
+    def test_rejects_invalid_name(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        with pytest.raises(Exception):
+            asyncio.run(mcp.call_tool("set_active_engine", {"name": "123bad"}))
+
+
+class TestStartBuild:
+    def test_rejects_no_build_dir(self, tmp_path: Path) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(mcp.call_tool("start_build", {"project_path": str(tmp_path)}))
+        parsed = json.loads(content[0].text)
+        assert parsed["status"] == "error"
+        assert "build" in parsed["code"]
+
+    def test_rejects_invalid_config(self, tmp_path: Path) -> None:
+        build_dir = tmp_path / "build" / "windows"
+        build_dir.mkdir(parents=True)
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(
+            mcp.call_tool(
+                "start_build",
+                {"project_path": str(tmp_path), "config": "invalid"},
+            )
+        )
+        parsed = json.loads(content[0].text)
+        assert parsed["status"] == "error"
+        assert "config" in parsed["code"]
+
+
+class TestGetBuildStatus:
+    def test_not_found(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        content, _ = asyncio.run(mcp.call_tool("get_build_status", {"build_id": "nonexistent"}))
+        parsed = json.loads(content[0].text)
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "not_found"
+
+    def test_empty_build_id(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.project import register_project_tools
+
+        mcp = FastMCP("test")
+        register_project_tools(mcp)
+        import asyncio
+
+        with pytest.raises(Exception):
+            asyncio.run(mcp.call_tool("get_build_status", {"build_id": ""}))
