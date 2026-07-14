@@ -100,6 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI robustness**: `test_cli_available` and `test_get_engine_info` now depend
   on the existing `engine_path` fixture, so they skip when no O3DE engine is
   installed instead of failing on a bare CI runner.
+- **Test deadlock**: `TestProtocolRoundTrip`'s fake-server round-trip tests tear
+  down the test server with a bounded `wait_closed()`, so they no longer
+  intermittently hang the suite on Python 3.12+ (an asyncio `wait_closed`
+  deadlock waiting on a lingering connection-handler task).
 - Applied `ruff format` to `test_capabilities.py` and `test_live_no_editor.py`.
 
 ### Previous additions
