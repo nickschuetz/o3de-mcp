@@ -60,6 +60,13 @@ _MAX_RESPONSE_BYTES = 1024 * 1024  # 1 MiB
 # Short timeout used after receiving initial data to detect end-of-response
 _TAIL_TIMEOUT = 0.5
 
+# How long capture_viewport waits, on the CLIENT, for an asynchronously issued
+# frame capture to reach disk. A module constant rather than a literal so a
+# test can shorten it: patching time.monotonic instead would replace the
+# attribute on the shared stdlib module, which asyncio's own event loop reads,
+# and wedges the loop rather than timing the test out.
+_CAPTURE_WAIT_SECONDS = 15.0
+
 
 # Default per-command execution timeout (seconds). Deliberately generous:
 # editor operations run the submitted Python *synchronously* and the editor
@@ -1850,73 +1857,92 @@ def register_editor_tools(mcp: FastMCP) -> None:
             def _try_atom_frame_capture():
                 import azlmbr.atom
                 import azlmbr.bus
-                import azlmbr.legacy.general as general
 
-                if not azlmbr.atom.FrameCaptureRequestBus(
-                    azlmbr.bus.Broadcast, 'CanCapture'
-                ):
-                    return False, 'Frame capture is not available (null renderer?)'
-
+                # DO NOT GATE ON CanCapture.
+                #
+                # It is `return !AZ::RHI::IsNullRHI()` in
+                # FrameCaptureSystemComponent, but through the reflection it
+                # comes back as None rather than a bool -- so `if not
+                # CanCapture()` refuses on a renderer that captures perfectly
+                # well. Measured against a live Editor reporting 134 fps on the
+                # dx12 RHI: CanCapture returned None while CaptureScreenshot
+                # succeeded and wrote a 1.2 MB frame. A None is also exactly
+                # what an EBus with no handler yields, so the value cannot
+                # drive the decision either way.
+                #
+                # The outcome of CaptureScreenshot IS the capability test, so
+                # ask the question that has a real answer.
                 outcome = azlmbr.atom.FrameCaptureRequestBus(
                     azlmbr.bus.Broadcast, 'CaptureScreenshot', _path
                 )
+                if outcome is None:
+                    return False, 'CaptureScreenshot returned None (no FrameCapture handler?)'
                 if not outcome.IsSuccess():
                     err = outcome.GetError()
                     msg = err.error_message if hasattr(err, 'error_message') else str(err)
                     return False, f'CaptureScreenshot failed: {{msg}}'
 
-                capture_id = outcome.GetValue()
-                done = [False]
-                success = [False]
-                info_str = ['']
+                # ISSUED, NOT AWAITED.
+                #
+                # The capture finishes on a later frame, and every way of
+                # waiting for it from inside an editor script blocks the very
+                # tick that would finish it. general.idle_wait_frames -- which
+                # this used to call -- permanently wedges the editor's main
+                # thread when called from a script dispatch: the first call
+                # never returns, every later request queues behind it forever,
+                # and the process still reports as responding. time.sleep stops
+                # the tick just as dead.
+                #
+                # So the wait belongs on the CLIENT, and the caller does it by
+                # polling for the file.
+                print(f'CAPTURE_ISSUED {{outcome.GetValue()}}')
+                return True, ''
 
-                handler = azlmbr.atom.FrameCaptureNotificationBusHandler()
-                handler.connect(capture_id)
-
-                def _on_finished(parameters):
-                    result_code, info = parameters[0], parameters[1]
-                    if result_code == azlmbr.atom.FrameCaptureResult_Success:
-                        success[0] = True
-                    info_str[0] = str(info)
-                    done[0] = True
-
-                handler.add_callback('OnFrameCaptureFinished', _on_finished)
-
-                max_frames = 60
-                for _ in range(max_frames):
-                    if done[0]:
-                        break
-                    general.idle_wait_frames(1)
-
-                if not done[0]:
-                    handler.disconnect()
-                    return False, 'Timed out waiting for frame capture'
-
-                handler.disconnect()
-                if success[0] and os.path.exists(_path):
-                    size = os.path.getsize(_path)
-                    print(f'Screenshot saved to {{_path}} ({{size}} bytes)')
-                    return True, ''
-                return False, f'Frame capture result: {{info_str[0]}}'
-
+            # The PySide6 reason is KEPT, not swallowed. Both paths failing
+            # used to report only the second one's message, which sent a reader
+            # hunting a null renderer when the real story was that
+            # QApplication.instance() is None in the editor's embedded
+            # interpreter -- so this path can never work there and the Atom
+            # fallback is the only one that matters.
             pyside_ok = False
+            pyside_msg = 'not attempted'
             try:
-                ok, msg = _try_pyside6()
-                pyside_ok = ok
-            except ImportError:
-                pass
-            except Exception:
-                pass
+                pyside_ok, pyside_msg = _try_pyside6()
+            except ImportError as e:
+                pyside_msg = f'PySide6 unavailable: {{e}}'
+            except Exception as e:
+                pyside_msg = f'PySide6 path raised: {{type(e).__name__}}: {{e}}'
 
             if not pyside_ok:
                 try:
                     ok, msg = _try_atom_frame_capture()
                     if not ok:
-                        print(f'Failed to capture viewport: {{msg}}')
+                        print(f'Failed to capture viewport: {{msg}} [PySide6: {{pyside_msg}}]')
                 except Exception as e:
-                    print(f'Failed to capture viewport: {{e}}')
+                    print(f'Failed to capture viewport: {{e}} [PySide6: {{pyside_msg}}]')
         """)
-        return await _async_run_editor_script(script)
+        result = await _async_run_editor_script(script)
+
+        if "CAPTURE_ISSUED" not in result:
+            # Either PySide6 wrote the file synchronously, or something failed
+            # and the script already said what.
+            return result
+
+        # WAIT HERE, ON THE CLIENT. The editor cannot wait for its own frame --
+        # anything that blocks inside a script blocks the tick that would
+        # complete the capture. The file appearing is the only observable that
+        # says it actually landed.
+        target = Path(output_path)
+        deadline = time.monotonic() + _CAPTURE_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            if target.exists() and target.stat().st_size > 0:
+                return f"Screenshot saved to {output_path} ({target.stat().st_size} bytes)"
+            await asyncio.sleep(0.1)
+
+        return (
+            f"Capture was issued but no file appeared at {output_path} "
+            f"within {_CAPTURE_WAIT_SECONDS:g}s. Editor said: {result.strip()}"
+        )
 
     @mcp.tool()
     async def instantiate_prefab(
