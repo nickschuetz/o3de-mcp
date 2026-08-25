@@ -858,9 +858,7 @@ class TestCaptureViewport:
         assert "Screenshot saved" in result
         assert "1234 bytes" in result
 
-    def test_does_not_return_a_stale_file_from_an_earlier_capture(
-        self, tmp_path: Path
-    ) -> None:
+    def test_does_not_return_a_stale_file_from_an_earlier_capture(self, tmp_path: Path) -> None:
         """A file already at the path must not be reported as this capture.
 
         Shooting to the same path in a loop is the common agent case. If the
