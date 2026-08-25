@@ -16,7 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from o3de_mcp.utils.o3de import list_registered_projects
 
@@ -81,7 +81,7 @@ def _read_log_tail(log_path: Path, lines: int = 50, filter_pattern: str | None =
     return all_lines[-lines:] if lines > 0 else all_lines
 
 
-def register_assets_tools(mcp: FastMCP) -> None:
+def register_assets_tools(mcp: MCPServer) -> None:
     """Register asset processor and log tools with the MCP server."""
 
     @mcp.tool()

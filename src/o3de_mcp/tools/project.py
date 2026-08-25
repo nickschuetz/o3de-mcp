@@ -18,7 +18,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from o3de_mcp.utils.o3de import (
     find_o3de_engine_path,
@@ -225,7 +225,7 @@ def _validate_path(value: str, label: str, must_exist: bool = False) -> Path:
     return path
 
 
-def register_project_tools(mcp: FastMCP) -> None:
+def register_project_tools(mcp: MCPServer) -> None:
     """Register all project management tools with the MCP server."""
 
     @mcp.tool()

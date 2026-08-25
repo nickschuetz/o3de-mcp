@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import json
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from o3de_mcp.utils.capabilities import get_server_capabilities
 
 
-def register_capabilities_tools(mcp: FastMCP) -> None:
+def register_capabilities_tools(mcp: MCPServer) -> None:
     """Register capability-detection tools with the MCP server."""
 
     @mcp.tool()

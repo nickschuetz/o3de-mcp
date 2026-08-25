@@ -23,12 +23,12 @@ from o3de_mcp.tools.assets import (
 
 
 async def _call_asset_tool(tool_name: str, arguments: dict) -> str:
-    """Register asset tools on a throwaway FastMCP and call a tool."""
-    from mcp.server.fastmcp import FastMCP
+    """Register asset tools on a throwaway MCPServer and call a tool."""
+    from mcp.server import MCPServer
 
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_assets_tools(mcp)
-    content, _ = await mcp.call_tool(tool_name, arguments)
+    content = (await mcp.call_tool(tool_name, arguments)).content
     return content[0].text
 
 

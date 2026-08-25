@@ -42,7 +42,7 @@ import time
 import uuid
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -775,7 +775,7 @@ def _run_editor_script(script: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def register_editor_tools(mcp: FastMCP) -> None:
+def register_editor_tools(mcp: MCPServer) -> None:
     """Register all editor automation tools with the MCP server."""
 
     # --- Script execution ---

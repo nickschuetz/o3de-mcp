@@ -37,7 +37,7 @@ python scripts/generate-sbom.py
 
 ```
 src/o3de_mcp/
-├── server.py          # FastMCP entry point — registers all tools, called via `o3de-mcp` CLI
+├── server.py          # MCPServer entry point — registers all tools, called via `o3de-mcp` CLI
 ├── tools/
 │   ├── capabilities.py # Capability detection tool (get_capabilities)
 │   ├── editor.py      # Editor automation tools (socket → remote console)
@@ -47,7 +47,7 @@ src/o3de_mcp/
     └── o3de.py         # Engine/manifest discovery, CLI runner, project/gem listing
 ```
 
-- **server.py** creates a `FastMCP` instance and calls `register_*_tools(mcp)` from each tool module. Each tool module defines a `register_*_tools` function that decorates functions with `@mcp.tool()`.
+- **server.py** creates a `MCPServer` instance and calls `register_*_tools(mcp)` from each tool module. Each tool module defines a `register_*_tools` function that decorates functions with `@mcp.tool()`.
 - **utils/capabilities.py** provides `probe_editor_connection()` (async TCP check), `probe_cli()` (CLI availability), and `get_server_capabilities()` (aggregated report).
 - **utils/o3de.py** handles O3DE engine discovery via `O3DE_ENGINE_PATH` env var or `~/.o3de/o3de_manifest.json`. Supports multiple engines via `O3DE_ENGINE_NAME`. All subprocess calls to the O3DE CLI go through `run_o3de_cli()`. Also provides `find_o3de_engine_version()`, `find_all_engines()`, and `list_available_templates()`.
 - Editor tools use raw TCP sockets to send `pyRunScript` commands. Host/port are configurable via `O3DE_EDITOR_HOST` and `O3DE_EDITOR_PORT` env vars (default: `127.0.0.1:4600`). Two separate timeouts apply: `O3DE_EDITOR_CONNECT_TIMEOUT` bounds the TCP connect (default: 5s) so an unreachable editor fails fast, while `O3DE_EDITOR_TIMEOUT` bounds per-command execution (default: 600s) — the editor runs each script synchronously and does not reply until done, so this is effectively "how long an editor op may take." `run_editor_python` also takes a per-call `timeout`. The scripts use the `azlmbr` namespace available inside the O3DE Editor Python environment.
@@ -55,7 +55,7 @@ src/o3de_mcp/
 
 ## Key Conventions
 
-- Tools are registered via `register_*_tools(mcp: FastMCP)` pattern — add new tool modules by creating a file in `tools/`, defining this function, and calling it from `server.py`.
+- Tools are registered via `register_*_tools(mcp: MCPServer)` pattern — add new tool modules by creating a file in `tools/`, defining this function, and calling it from `server.py`.
 - All O3DE path discovery is centralized in `utils/o3de.py` — never hardcode engine paths elsewhere.
 - Python 3.10+ is required (uses `X | Y` union types).
 - Ruff is used for both linting and formatting (line length 100). Run `ruff check --fix` and `ruff format` before committing.

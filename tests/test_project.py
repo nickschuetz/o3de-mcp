@@ -568,17 +568,17 @@ class TestListProjectGems:
             json.dumps({"project_name": "TestProject", "gem_names": ["Atom", "PhysX5", "Terrain"]})
         )
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(
+        content = asyncio.run(
             mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
-        )
+        ).content
         parsed = json.loads(content[0].text)
         assert parsed["gems"] == ["Atom", "PhysX5", "Terrain"]
         assert parsed["count"] == 3
@@ -587,33 +587,33 @@ class TestListProjectGems:
         project_json = tmp_path / "project.json"
         project_json.write_text(json.dumps({"project_name": "EmptyProject"}))
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(
+        content = asyncio.run(
             mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
-        )
+        ).content
         parsed = json.loads(content[0].text)
         assert parsed["gems"] == []
         assert parsed["count"] == 0
 
     def test_missing_project_json(self, tmp_path: Path) -> None:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(
+        content = asyncio.run(
             mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
-        )
+        ).content
         parsed = json.loads(content[0].text)
         assert parsed["status"] == "error"
 
@@ -621,17 +621,17 @@ class TestListProjectGems:
         project_json = tmp_path / "project.json"
         project_json.write_text("not valid json {{{")
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(
+        content = asyncio.run(
             mcp.call_tool("list_project_gems", {"project_path": str(tmp_path)})
-        )
+        ).content
         parsed = json.loads(content[0].text)
         assert parsed["status"] == "error"
 
@@ -651,54 +651,56 @@ class TestRegisterEngine:
             stderr="",
         )
         with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=mock_result):
-            from mcp.server.fastmcp import FastMCP
+            from mcp.server import MCPServer
 
             from o3de_mcp.tools.project import register_project_tools
 
-            mcp = FastMCP("test")
+            mcp = MCPServer("test")
             register_project_tools(mcp)
             import asyncio
 
-            content, _ = asyncio.run(
+            content = asyncio.run(
                 mcp.call_tool("register_engine", {"engine_path": str(tmp_path)})
-            )
+            ).content
             assert "registered" in content[0].text.lower()
 
     def test_missing_engine_json(self, tmp_path: Path) -> None:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(mcp.call_tool("register_engine", {"engine_path": str(tmp_path)}))
+        content = asyncio.run(
+            mcp.call_tool("register_engine", {"engine_path": str(tmp_path)})
+        ).content
         parsed = json.loads(content[0].text)
         assert parsed["status"] == "error"
 
 
 class TestSetActiveEngine:
     def test_sets_env_var(self) -> None:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
         with patch.dict("os.environ", {}, clear=True):
-            content, _ = asyncio.run(mcp.call_tool("set_active_engine", {"name": "o3de"}))
+            content = asyncio.run(mcp.call_tool("set_active_engine", {"name": "o3de"})).content
             assert "o3de" in content[0].text
             assert os.environ.get("O3DE_ENGINE_NAME") == "o3de"
 
     def test_rejects_invalid_name(self) -> None:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
@@ -708,15 +710,15 @@ class TestSetActiveEngine:
 
 class TestStartBuild:
     def test_rejects_no_build_dir(self, tmp_path: Path) -> None:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(mcp.call_tool("start_build", {"project_path": str(tmp_path)}))
+        content = asyncio.run(mcp.call_tool("start_build", {"project_path": str(tmp_path)})).content
         parsed = json.loads(content[0].text)
         assert parsed["status"] == "error"
         assert "build" in parsed["code"]
@@ -725,20 +727,20 @@ class TestStartBuild:
         build_dir = tmp_path / "build" / "windows"
         build_dir.mkdir(parents=True)
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(
+        content = asyncio.run(
             mcp.call_tool(
                 "start_build",
                 {"project_path": str(tmp_path), "config": "invalid"},
             )
-        )
+        ).content
         parsed = json.loads(content[0].text)
         assert parsed["status"] == "error"
         assert "config" in parsed["code"]
@@ -746,25 +748,27 @@ class TestStartBuild:
 
 class TestGetBuildStatus:
     def test_not_found(self) -> None:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 
-        content, _ = asyncio.run(mcp.call_tool("get_build_status", {"build_id": "nonexistent"}))
+        content = asyncio.run(
+            mcp.call_tool("get_build_status", {"build_id": "nonexistent"})
+        ).content
         parsed = json.loads(content[0].text)
         assert parsed["status"] == "error"
         assert parsed["code"] == "not_found"
 
     def test_empty_build_id(self) -> None:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.project import register_project_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_project_tools(mcp)
         import asyncio
 

@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from o3de_mcp.tools.assets import register_assets_tools
 from o3de_mcp.tools.editor import register_editor_tools
@@ -39,10 +39,10 @@ def _resolve_project_path() -> str:
 
 
 @pytest.fixture
-def mcp_server() -> FastMCP:
+def mcp_server() -> MCPServer:
     from o3de_mcp.tools.capabilities import register_capabilities_tools
 
-    mcp = FastMCP("live-test")
+    mcp = MCPServer("live-test")
     register_capabilities_tools(mcp)
     register_editor_tools(mcp)
     register_introspection_tools(mcp)
@@ -56,8 +56,8 @@ def project_path() -> str:
     return _resolve_project_path()
 
 
-async def _call(mcp: FastMCP, tool_name: str, **kwargs) -> str:
-    content, _ = await mcp.call_tool(tool_name, kwargs)
+async def _call(mcp: MCPServer, tool_name: str, **kwargs) -> str:
+    content = (await mcp.call_tool(tool_name, kwargs)).content
     return content[0].text
 
 
@@ -74,7 +74,7 @@ def _run(coro):
 
 
 class TestLiveCapabilities:
-    def test_get_capabilities_reports_connected(self, mcp_server: FastMCP) -> None:
+    def test_get_capabilities_reports_connected(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_capabilities"))
         parsed = json.loads(result)
         assert parsed["editor"]["status"] == "connected"
@@ -88,7 +88,7 @@ class TestLiveCapabilities:
 
 
 class TestLiveEntityOps:
-    def test_list_entities(self, mcp_server: FastMCP) -> None:
+    def test_list_entities(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "list_entities"))
         try:
             parsed = json.loads(result)
@@ -99,7 +99,7 @@ class TestLiveEntityOps:
         except json.JSONDecodeError:
             assert isinstance(result, str)
 
-    def test_create_and_delete_entity(self, mcp_server: FastMCP) -> None:
+    def test_create_and_delete_entity(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "create_entity", name="LiveTestEntity"))
         assert "LiveTestEntity" in result or "entity" in result.lower()
 
@@ -119,7 +119,7 @@ class TestLiveEntityOps:
 
 
 class TestLiveTransform:
-    def test_set_and_get_transform(self, mcp_server: FastMCP) -> None:
+    def test_set_and_get_transform(self, mcp_server: MCPServer) -> None:
         create_result = _run(_call(mcp_server, "create_entity", name="TransformTest"))
 
         entity_id: str | None = None
@@ -178,11 +178,11 @@ class TestLiveTransform:
 
 
 class TestLiveConsole:
-    def test_run_console_command(self, mcp_server: FastMCP) -> None:
+    def test_run_console_command(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "run_console_command", command="r_DisplayInfo 0"))
         assert "Executed" in result or "error" in result.lower()
 
-    def test_set_and_get_cvar(self, mcp_server: FastMCP) -> None:
+    def test_set_and_get_cvar(self, mcp_server: MCPServer) -> None:
         set_result = _run(_call(mcp_server, "set_cvar", name="r_DisplayInfo", value="0"))
         assert "Set" in set_result or "error" in set_result.lower()
 
@@ -191,7 +191,7 @@ class TestLiveConsole:
 
 
 class TestLiveLevels:
-    def test_get_level_info(self, mcp_server: FastMCP) -> None:
+    def test_get_level_info(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_level_info"))
         try:
             parsed = json.loads(result)
@@ -199,7 +199,7 @@ class TestLiveLevels:
         except json.JSONDecodeError:
             assert isinstance(result, str)
 
-    def test_list_levels(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_list_levels(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(_call(mcp_server, "list_levels", project_path=project_path))
         parsed = json.loads(result)
         assert "levels" in parsed
@@ -207,7 +207,7 @@ class TestLiveLevels:
 
 
 class TestLiveViewport:
-    def test_get_viewport_camera(self, mcp_server: FastMCP) -> None:
+    def test_get_viewport_camera(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_viewport_camera"))
         try:
             parsed = json.loads(result)
@@ -215,7 +215,7 @@ class TestLiveViewport:
         except json.JSONDecodeError:
             assert isinstance(result, str)
 
-    def test_capture_viewport(self, mcp_server: FastMCP, tmp_path: Path) -> None:
+    def test_capture_viewport(self, mcp_server: MCPServer, tmp_path: Path) -> None:
         screenshot_path = str(tmp_path / "test_screenshot.png")
         result = _run(
             _call(
@@ -228,7 +228,7 @@ class TestLiveViewport:
 
 
 class TestLivePrefabs:
-    def test_instantiate_prefab_invalid_path(self, mcp_server: FastMCP) -> None:
+    def test_instantiate_prefab_invalid_path(self, mcp_server: MCPServer) -> None:
         result = _run(
             _call(
                 mcp_server,
@@ -242,7 +242,7 @@ class TestLivePrefabs:
 
 
 class TestLiveSession:
-    def test_session_lifecycle(self, mcp_server: FastMCP) -> None:
+    def test_session_lifecycle(self, mcp_server: MCPServer) -> None:
         begin_result = _run(_call(mcp_server, "begin_session"))
         try:
             parsed = json.loads(begin_result)
@@ -277,12 +277,12 @@ class TestLiveSession:
 
 
 class TestLiveProject:
-    def test_get_engine_info(self, mcp_server: FastMCP) -> None:
+    def test_get_engine_info(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_engine_info"))
         parsed = json.loads(result)
         assert "engine_path" in parsed
 
-    def test_list_projects(self, mcp_server: FastMCP) -> None:
+    def test_list_projects(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "list_projects"))
         try:
             parsed = json.loads(result)
@@ -290,7 +290,7 @@ class TestLiveProject:
         except json.JSONDecodeError:
             pytest.fail(f"list_projects returned invalid JSON: {result}")
 
-    def test_list_project_gems(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_list_project_gems(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(_call(mcp_server, "list_project_gems", project_path=project_path))
         parsed = json.loads(result)
         assert "gems" in parsed
@@ -298,7 +298,7 @@ class TestLiveProject:
 
 
 class TestLiveAssets:
-    def test_get_asset_processor_status(self, mcp_server: FastMCP) -> None:
+    def test_get_asset_processor_status(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_asset_processor_status"))
         parsed = json.loads(result)
         assert "running" in parsed
@@ -306,7 +306,7 @@ class TestLiveAssets:
         # a boolean either way rather than the test requiring it to be up.
         assert isinstance(parsed["running"], bool)
 
-    def test_tail_log_editor(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_tail_log_editor(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(
                 mcp_server,
@@ -321,7 +321,7 @@ class TestLiveAssets:
             assert "lines" in parsed
             assert isinstance(parsed["lines"], list)
 
-    def test_get_log_errors(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_get_log_errors(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(
                 mcp_server,
@@ -338,7 +338,7 @@ class TestLiveAssets:
 
 
 class TestLiveIntrospection:
-    def test_get_bus_schema_live(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_get_bus_schema_live(self, mcp_server: MCPServer, project_path: str) -> None:
         # Pass project_path so the stub fallback can resolve on machines that
         # have several projects with stub dumps (otherwise it correctly reports
         # stub_fallback_failed because the project is ambiguous).
@@ -360,7 +360,7 @@ class TestLiveIntrospection:
             "error",
         )
 
-    def test_capture_renderdoc_frame(self, mcp_server: FastMCP) -> None:
+    def test_capture_renderdoc_frame(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "capture_renderdoc_frame"))
         try:
             parsed = json.loads(result)
@@ -371,39 +371,39 @@ class TestLiveIntrospection:
 
 
 class TestLiveEdgeCases:
-    def test_invalid_entity_id_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_entity_id_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "get_transform", entity_id="not_a_number"))
 
-    def test_invalid_console_command_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_console_command_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "run_console_command", command="; rm -rf /"))
 
-    def test_invalid_prefab_path_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_prefab_path_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "instantiate_prefab", prefab_path="../escape.json"))
 
-    def test_empty_session_id_raises(self, mcp_server: FastMCP) -> None:
+    def test_empty_session_id_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "end_session", session_id=""))
 
-    def test_empty_build_id_raises(self, mcp_server: FastMCP) -> None:
+    def test_empty_build_id_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "get_build_status", build_id=""))
 
-    def test_invalid_cvar_value_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_cvar_value_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "set_cvar", name="r_fog", value=""))
 
-    def test_invalid_viewport_path_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_viewport_path_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "capture_viewport", output_path="invalid.txt"))
 
-    def test_invalid_level_name_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_level_name_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "create_level", name="123Invalid"))
 
-    def test_invalid_transform_position_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_transform_position_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(
                 _call(
@@ -414,7 +414,7 @@ class TestLiveEdgeCases:
                 )
             )
 
-    def test_invalid_transform_rotation_raises(self, mcp_server: FastMCP) -> None:
+    def test_invalid_transform_rotation_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(
                 _call(

@@ -25,7 +25,7 @@ graph LR
     end
 
     subgraph MCP["o3de-mcp Server"]
-        S["server.py<br/>(FastMCP)"]
+        S["server.py<br/>(MCPServer)"]
         CAP["capabilities.py<br/>get_capabilities"]
         ED["editor.py<br/>Entity, Component,<br/>Level, Game Mode"]
         INTRO["introspection.py<br/>get_bus_schema"]
@@ -114,7 +114,7 @@ Always call `get_capabilities()` first to determine which tool categories are av
 
 | Module | Role |
 |--------|------|
-| `server.py` | FastMCP entry point — registers all tool modules |
+| `server.py` | MCPServer entry point — registers all tool modules |
 | `tools/capabilities.py` | Exposes `get_capabilities` tool |
 | `tools/editor.py` | 16 editor automation tools — entity CRUD, components, levels, game mode; pooled TCP transport with protocol auto-detection |
 | `tools/introspection.py` | Exposes `get_bus_schema` — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs |

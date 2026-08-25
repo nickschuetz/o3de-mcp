@@ -176,10 +176,10 @@ class TestGetServerCapabilities:
 
 class TestDiscoverToolCategories:
     def test_dynamic_discovery_from_mcp(self) -> None:
-        """Tools are discovered dynamically from the FastMCP registry."""
-        from mcp.server.fastmcp import FastMCP
+        """Tools are discovered dynamically from the MCPServer registry."""
+        from mcp.server import MCPServer
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
 
         @mcp.tool()
         def list_entities() -> str:
@@ -197,9 +197,9 @@ class TestDiscoverToolCategories:
 
     def test_unknown_tools_in_other_category(self) -> None:
         """Tools not in any known category appear under 'other_tools'."""
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
 
         @mcp.tool()
         def some_future_tool() -> str:
@@ -212,9 +212,9 @@ class TestDiscoverToolCategories:
 
     def test_no_other_category_when_all_known(self) -> None:
         """No 'other_tools' category when all tools are in known sets."""
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
 
         @mcp.tool()
         def get_capabilities() -> str:
