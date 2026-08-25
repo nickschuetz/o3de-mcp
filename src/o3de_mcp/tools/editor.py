@@ -20,6 +20,7 @@ Configuration:
   O3DE_EDITOR_PORT            — editor port (default: 4600)
   O3DE_EDITOR_TIMEOUT         — per-command execution timeout, seconds (default: 600)
   O3DE_EDITOR_CONNECT_TIMEOUT — TCP connect timeout, seconds (default: 5)
+  O3DE_CAPTURE_WAIT           — capture_viewport file wait, seconds (default: 15)
   O3DE_EDITOR_TLS             — enable TLS (default: 0)
   O3DE_EDITOR_TLS_VERIFY      — verify TLS cert (default: 0)
   O3DE_EDITOR_TLS_CA          — path to CA cert for verification
@@ -60,6 +61,18 @@ _MAX_RESPONSE_BYTES = 1024 * 1024  # 1 MiB
 # Short timeout used after receiving initial data to detect end-of-response
 _TAIL_TIMEOUT = 0.5
 
+# How long capture_viewport waits, on the CLIENT, for an asynchronously issued
+# frame capture to reach disk. Read through a helper rather than used as a
+# literal so a test can shorten it: patching time.monotonic instead would
+# replace the attribute on the shared stdlib module, which asyncio's own event
+# loop reads, and wedges the loop rather than timing the test out.
+_DEFAULT_CAPTURE_WAIT = 15.0
+
+# How long the file size must stay unchanged before the capture counts as
+# finished. A 1.6 MB PNG does not appear atomically, so a file that merely
+# exists may still be being written.
+_CAPTURE_STABLE_SECONDS = 0.2
+
 
 # Default per-command execution timeout (seconds). Deliberately generous:
 # editor operations run the submitted Python *synchronously* and the editor
@@ -88,6 +101,21 @@ def _get_editor_timeout() -> float:
     except (TypeError, ValueError):
         return _DEFAULT_EDITOR_TIMEOUT
     return value if value > 0.0 else _DEFAULT_EDITOR_TIMEOUT
+
+
+def _get_capture_wait() -> float:
+    """Return how long to wait, client-side, for a capture to reach disk.
+
+    Read per call from O3DE_CAPTURE_WAIT, same convention as the editor
+    timeouts above. A missing/invalid or non-positive value falls back to the
+    default. 15s is generous rather than tight: the common cause of a capture
+    that never lands is having no level open, which the timeout message names.
+    """
+    try:
+        value = float(os.environ.get("O3DE_CAPTURE_WAIT", str(_DEFAULT_CAPTURE_WAIT)))
+    except (TypeError, ValueError):
+        return _DEFAULT_CAPTURE_WAIT
+    return value if value > 0.0 else _DEFAULT_CAPTURE_WAIT
 
 
 def _get_editor_connect_timeout() -> float:
@@ -1804,6 +1832,18 @@ def register_editor_tools(mcp: FastMCP) -> None:
         if not output_path.lower().endswith(valid_extensions):
             raise ValueError(f"output_path must end in one of {valid_extensions}: {output_path!r}")
 
+        # RESOLVE HERE so both sides mean the same file.
+        #
+        # A relative path does NOT resolve against the editor's Python cwd.
+        # AZ::LocalFileIO::ResolvePath treats a path with no alias as
+        # @products@-relative, so a capture issued as 'shot.png' lands in
+        # <project>/Cache/<platform>/ while this client polls './shot.png' --
+        # and reports a timeout on a capture that actually succeeded. Absolute
+        # paths pass through both sides untouched, so make it absolute once,
+        # here, and send that.
+        target = Path(output_path).expanduser().resolve()
+        output_path = str(target)
+
         params = json.dumps({"output_path": output_path, "width": width, "height": height})
         script = textwrap.dedent(f"""\
             import json
@@ -1850,73 +1890,125 @@ def register_editor_tools(mcp: FastMCP) -> None:
             def _try_atom_frame_capture():
                 import azlmbr.atom
                 import azlmbr.bus
-                import azlmbr.legacy.general as general
 
-                if not azlmbr.atom.FrameCaptureRequestBus(
-                    azlmbr.bus.Broadcast, 'CanCapture'
-                ):
-                    return False, 'Frame capture is not available (null renderer?)'
-
+                # DO NOT GATE ON CanCapture. IT IS NOT REFLECTED AT ALL.
+                #
+                # The bus binds exactly three events -- CaptureScreenshot,
+                # CaptureScreenshotWithPreview, CapturePassAttachment. There is
+                # no CanCapture to call, and a nonexistent event returns None,
+                # exactly as a bogus name like NoSuchEventXyzzy does. So `if
+                # not CanCapture()` refused unconditionally and could never
+                # have worked, on any machine or RHI -- it is not a bool
+                # arriving as None through the reflection, which is the wrong
+                # explanation to leave for the next reader.
+                #
+                # Removing the gate loses nothing: ScreenshotPreparation checks
+                # CanCapture() in C++ and fails the outcome on a null RHI, so a
+                # genuinely absent renderer still surfaces -- in the outcome
+                # checked immediately below, which is a question with a real
+                # answer.
                 outcome = azlmbr.atom.FrameCaptureRequestBus(
                     azlmbr.bus.Broadcast, 'CaptureScreenshot', _path
                 )
+                if outcome is None:
+                    return False, 'CaptureScreenshot returned None (no FrameCapture handler?)'
                 if not outcome.IsSuccess():
                     err = outcome.GetError()
                     msg = err.error_message if hasattr(err, 'error_message') else str(err)
                     return False, f'CaptureScreenshot failed: {{msg}}'
 
-                capture_id = outcome.GetValue()
-                done = [False]
-                success = [False]
-                info_str = ['']
+                # ISSUED, NOT AWAITED.
+                #
+                # The capture finishes on a later frame, and every way of
+                # waiting for it from inside an editor script blocks the very
+                # tick that would finish it. general.idle_wait_frames -- which
+                # this used to call -- permanently wedges the editor's main
+                # thread when called from a script dispatch: the first call
+                # never returns, every later request queues behind it forever,
+                # and the process still reports as responding. time.sleep stops
+                # the tick just as dead.
+                #
+                # So the wait belongs on the CLIENT, and the caller does it by
+                # polling for the file.
+                print(f'CAPTURE_ISSUED {{outcome.GetValue()}}')
+                return True, ''
 
-                handler = azlmbr.atom.FrameCaptureNotificationBusHandler()
-                handler.connect(capture_id)
-
-                def _on_finished(parameters):
-                    result_code, info = parameters[0], parameters[1]
-                    if result_code == azlmbr.atom.FrameCaptureResult_Success:
-                        success[0] = True
-                    info_str[0] = str(info)
-                    done[0] = True
-
-                handler.add_callback('OnFrameCaptureFinished', _on_finished)
-
-                max_frames = 60
-                for _ in range(max_frames):
-                    if done[0]:
-                        break
-                    general.idle_wait_frames(1)
-
-                if not done[0]:
-                    handler.disconnect()
-                    return False, 'Timed out waiting for frame capture'
-
-                handler.disconnect()
-                if success[0] and os.path.exists(_path):
-                    size = os.path.getsize(_path)
-                    print(f'Screenshot saved to {{_path}} ({{size}} bytes)')
-                    return True, ''
-                return False, f'Frame capture result: {{info_str[0]}}'
-
+            # The PySide6 reason is KEPT, not swallowed. Both paths failing
+            # used to report only the second one's message, which sent a reader
+            # hunting a null renderer when the real story was that
+            # QApplication.instance() is None in the editor's embedded
+            # interpreter -- so this path can never work there and the Atom
+            # fallback is the only one that matters.
             pyside_ok = False
+            pyside_msg = 'not attempted'
             try:
-                ok, msg = _try_pyside6()
-                pyside_ok = ok
-            except ImportError:
-                pass
-            except Exception:
-                pass
+                pyside_ok, pyside_msg = _try_pyside6()
+            except ImportError as e:
+                pyside_msg = f'PySide6 unavailable: {{e}}'
+            except Exception as e:
+                pyside_msg = f'PySide6 path raised: {{type(e).__name__}}: {{e}}'
 
             if not pyside_ok:
                 try:
                     ok, msg = _try_atom_frame_capture()
                     if not ok:
-                        print(f'Failed to capture viewport: {{msg}}')
+                        print(f'Failed to capture viewport: {{msg}} [PySide6: {{pyside_msg}}]')
                 except Exception as e:
-                    print(f'Failed to capture viewport: {{e}}')
+                    print(f'Failed to capture viewport: {{e}} [PySide6: {{pyside_msg}}]')
         """)
-        return await _async_run_editor_script(script)
+        # STAT BEFORE ISSUING. A file already at this path -- the previous
+        # capture, when an agent shoots to the same name in a loop -- otherwise
+        # satisfies the poll immediately and gets returned as this call's
+        # result, with the stale byte count, before the new frame lands.
+        try:
+            _before = target.stat()
+            before_sig: tuple[float, int] | None = (_before.st_mtime, _before.st_size)
+        except OSError:
+            before_sig = None
+
+        result = await _async_run_editor_script(script)
+
+        if "CAPTURE_ISSUED" not in result:
+            # Either PySide6 wrote the file synchronously, or something failed
+            # and the script already said what.
+            return result
+
+        # WAIT HERE, ON THE CLIENT. The editor cannot wait for its own frame --
+        # anything that blocks inside a script blocks the tick that would
+        # complete the capture. The file appearing is the only observable that
+        # says it actually landed.
+        # A NEW file, and a FINISHED one. "Exists and is non-empty" is not
+        # enough on either count: it accepts the previous capture, and it
+        # accepts a 1.6 MB PNG that is still being written. So require the
+        # (mtime, size) to differ from what was there before the capture was
+        # issued, then require the size to hold steady before reporting it.
+        capture_wait = _get_capture_wait()
+        deadline = time.monotonic() + capture_wait
+        stable_since: float | None = None
+        stable_size: int | None = None
+        while time.monotonic() < deadline:
+            try:
+                st = target.stat()
+            except OSError:
+                st = None
+            if st is not None and st.st_size > 0 and (st.st_mtime, st.st_size) != before_sig:
+                now = time.monotonic()
+                if stable_size == st.st_size:
+                    if now - (stable_since or now) >= _CAPTURE_STABLE_SECONDS:
+                        return f"Screenshot saved to {output_path} ({st.st_size} bytes)"
+                else:
+                    stable_size = st.st_size
+                    stable_since = now
+            await asyncio.sleep(0.05)
+
+        return (
+            f"Capture was issued but no new file appeared at {output_path} "
+            f"within {capture_wait:g}s (O3DE_CAPTURE_WAIT). The usual cause is "
+            f"that no level is open: CaptureScreenshot then returns success "
+            f"with a capture id and never writes anything, while the same call "
+            f"lands in under a second once a level is loaded. "
+            f"Editor said: {result.strip()}"
+        )
 
     @mcp.tool()
     async def instantiate_prefab(

@@ -453,6 +453,29 @@ async def _call_tool(tool_name: str, arguments: dict, mock_output: str = "ok") -
     return content[0].text
 
 
+async def _call_capture_raw(output_path: str, send) -> str:
+    """capture_viewport with a CUSTOM send_script coroutine.
+
+    `_call_tool`'s canned string cannot write a file, and the capture tests
+    need the file to appear *while the client is polling* -- creating it up
+    front would let them pass without any waiting having happened.
+    """
+    from mcp.server.fastmcp import FastMCP
+
+    from o3de_mcp.tools.editor import register_editor_tools
+
+    mcp = FastMCP("test")
+    register_editor_tools(mcp)
+    with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+        mock_pool.send_script = send
+        content, _ = await mcp.call_tool("capture_viewport", {"output_path": output_path})
+    return content[0].text
+
+
+async def _call_capture(target: Path, send) -> str:
+    return await _call_capture_raw(str(target), send)
+
+
 # --- Phase 1: Vec3 validator tests ---
 
 
@@ -813,6 +836,180 @@ class TestCaptureViewport:
     def test_rejects_invalid_extension(self) -> None:
         with pytest.raises(Exception):
             asyncio.run(_call_tool("capture_viewport", {"output_path": "screenshot.txt"}))
+
+    def test_waits_for_the_file_when_the_capture_is_issued_asynchronously(
+        self, tmp_path: Path
+    ) -> None:
+        """The Atom path issues a capture and returns; the file lands later.
+
+        It cannot be awaited inside the editor script, because everything that
+        could wait there blocks the very tick that completes the capture.
+
+        The file is written by the mocked editor call rather than up front:
+        pre-creating it would let this pass without any waiting happening.
+        """
+        target = tmp_path / "shot.png"
+
+        async def _send(script: str, timeout: float | None = None) -> str:
+            target.write_bytes(b"x" * 1234)
+            return "CAPTURE_ISSUED 7"
+
+        result = asyncio.run(_call_capture(target, _send))
+        assert "Screenshot saved" in result
+        assert "1234 bytes" in result
+
+    def test_does_not_return_a_stale_file_from_an_earlier_capture(self, tmp_path: Path) -> None:
+        """A file already at the path must not be reported as this capture.
+
+        Shooting to the same path in a loop is the common agent case. If the
+        poll accepts "exists and non-empty", the PREVIOUS frame is handed back
+        with its stale byte count and the caller is told it succeeded -- while
+        the new capture may never have landed at all.
+        """
+        target = tmp_path / "shot.png"
+        target.write_bytes(b"old" * 100)  # a previous capture, 300 bytes
+
+        with patch("o3de_mcp.tools.editor._DEFAULT_CAPTURE_WAIT", 0.3):
+            result = asyncio.run(
+                _call_tool(
+                    "capture_viewport",
+                    {"output_path": str(target)},
+                    mock_output="CAPTURE_ISSUED 7",  # nothing new is written
+                )
+            )
+        assert "no new file appeared" in result
+        assert "300 bytes" not in result
+
+    def test_waits_for_a_partially_written_file_to_settle(self, tmp_path: Path) -> None:
+        """A PNG does not appear atomically; report the size only once it holds.
+
+        The mock writes a short prefix, then the rest arrives while the client
+        is polling. Reporting the first stat would give a truncated size for a
+        file that is still being written.
+        """
+        target = tmp_path / "shot.png"
+
+        async def _send(script: str, timeout: float | None = None) -> str:
+            target.write_bytes(b"x" * 10)
+
+            async def _finish() -> None:
+                await asyncio.sleep(0.1)
+                target.write_bytes(b"x" * 4096)
+
+            asyncio.create_task(_finish())
+            return "CAPTURE_ISSUED 7"
+
+        result = asyncio.run(_call_capture(target, _send))
+        assert "4096 bytes" in result
+
+    def test_reports_when_an_issued_capture_never_lands(self, tmp_path: Path) -> None:
+        """A capture that is accepted but produces no file must not read as success."""
+        missing = tmp_path / "never.png"
+
+        # Shorten the WAIT, do not fake the clock. Patching
+        # editor.time.monotonic replaces the attribute on the shared stdlib
+        # module that asyncio's event loop also reads, which hangs the test
+        # run instead of failing it.
+        with patch("o3de_mcp.tools.editor._DEFAULT_CAPTURE_WAIT", 0.2):
+            result = asyncio.run(
+                _call_tool(
+                    "capture_viewport",
+                    {"output_path": str(missing)},
+                    mock_output="CAPTURE_ISSUED 7",
+                )
+            )
+        assert "no new file appeared" in result
+        # The common cause is named, so the reader is not sent hunting a
+        # broken renderer.
+        assert "no level is open" in result
+
+    def test_makes_a_relative_output_path_absolute(self) -> None:
+        """Both sides must mean the same file.
+
+        A relative path is @products@-relative to the editor -- it lands in
+        <project>/Cache/<platform>/ -- while the client would poll it against
+        its own cwd, and time out on a capture that succeeded.
+        """
+        captured: dict[str, str] = {}
+
+        async def _send(script: str, timeout: float | None = None) -> str:
+            captured["script"] = script
+            return "Screenshot saved to x (1 bytes, 1x1)"
+
+        asyncio.run(_call_capture_raw("shot.png", _send))
+        sent = captured["script"]
+
+        # Compare with backslashes stripped: the path goes through json.dumps
+        # and then an f-string repr, so it is escaped twice in the script and
+        # matching the literal text would be asserting on the escaping rather
+        # than on the path.
+        def _flat(s: str) -> str:
+            return s.replace("\\", "")
+
+        expected = str(Path("shot.png").expanduser().resolve())
+        assert _flat(expected) in _flat(sent)
+        # and it really is absolute, not the relative name passed in
+        assert Path(expected).is_absolute()
+
+    def test_passes_through_a_synchronous_result_untouched(self, tmp_path: Path) -> None:
+        """The PySide6 path writes the file itself and reports success directly.
+
+        Without the marker there is nothing to wait for, so the editor's own
+        message is the answer.
+        """
+        result = asyncio.run(
+            _call_tool(
+                "capture_viewport",
+                {"output_path": str(tmp_path / "shot.png")},
+                mock_output="Screenshot saved to shot.png (10 bytes, 800x600)",
+            )
+        )
+        assert result == "Screenshot saved to shot.png (10 bytes, 800x600)"
+
+    def test_script_does_not_gate_on_can_capture(self) -> None:
+        """The generated script must not refuse based on CanCapture.
+
+        CanCapture is NOT REFLECTED. FrameCaptureRequestBus binds exactly
+        three events -- CaptureScreenshot, CaptureScreenshotWithPreview,
+        CapturePassAttachment -- so calling it returns None for the same
+        reason a bogus event name does: there is no such event. ``if not
+        CanCapture()`` therefore refused unconditionally and could never have
+        worked on any machine or RHI.
+
+        Nothing is lost by removing it: ScreenshotPreparation checks
+        CanCapture() in C++ and fails the outcome on a null RHI, so a genuinely
+        absent renderer still surfaces -- in the outcome, which is a question
+        with a real answer.
+        """
+        captured: dict[str, str] = {}
+
+        async def _record(script: str, timeout: float | None = None) -> str:
+            captured["script"] = script
+            return "CAPTURE_ISSUED 1"
+
+        from mcp.server.fastmcp import FastMCP
+
+        from o3de_mcp.tools.editor import register_editor_tools
+
+        mcp = FastMCP("test")
+        register_editor_tools(mcp)
+        with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+            mock_pool.send_script = AsyncMock(side_effect=_record)
+            asyncio.run(mcp.call_tool("capture_viewport", {"output_path": "shot.png"}))
+
+        # CODE ONLY. Both names below appear in the script's own comments,
+        # explaining why they are not used, so asserting against the raw text
+        # fails a correct script -- twice, while I was writing this.
+        code = "\n".join(
+            line for line in captured["script"].splitlines() if not line.lstrip().startswith("#")
+        )
+
+        assert "CanCapture" not in code
+
+        # And it must not wait inside the editor: idle_wait_frames called from
+        # a script dispatch wedges the editor's main thread permanently, with
+        # the process still reporting as responding.
+        assert "idle_wait_frames" not in code
 
 
 # --- Phase 5: Prefab tool tests ---
