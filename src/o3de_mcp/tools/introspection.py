@@ -10,12 +10,12 @@ from __future__ import annotations
 import json
 import textwrap
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from o3de_mcp.utils.introspection import get_bus_schema as _get_bus_schema
 
 
-def register_introspection_tools(mcp: FastMCP) -> None:
+def register_introspection_tools(mcp: MCPServer) -> None:
     """Register reflection-introspection tools with the MCP server."""
 
     @mcp.tool()

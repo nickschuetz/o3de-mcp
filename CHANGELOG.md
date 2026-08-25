@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Migrated to the `mcp` 2.x API.** `FastMCP` was renamed to `MCPServer` and
+  moved to `mcp.server.mcpserver` in `mcp` 2.0, which broke every import. All
+  seven call sites now use `from mcp.server import MCPServer`. The server
+  version is passed via the new `version=` constructor argument instead of
+  assigning to the private `_mcp_server.version` attribute.
+- **Bounded the dependency ranges.** `mcp[cli]` is now `>=2.0,<3`, and the dev
+  dependencies carry upper bounds. Previously every range was open-ended, so
+  the `mcp` 2.0 release broke CI on `main` with no warning.
+
 ### Added
 
 - **20 new tools** across 4 categories:

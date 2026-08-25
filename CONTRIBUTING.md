@@ -49,7 +49,7 @@ Every source file must include the SPDX license header:
 
 ## Adding New Tools
 
-Follow the `register_*_tools(mcp: FastMCP)` pattern:
+Follow the `register_*_tools(mcp: MCPServer)` pattern:
 
 1. Create a new file in `src/o3de_mcp/tools/`.
 2. Define a `register_*_tools(mcp)` function that decorates tool functions with `@mcp.tool()`.

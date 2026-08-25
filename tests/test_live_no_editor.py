@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from o3de_mcp.tools.assets import register_assets_tools
 from o3de_mcp.tools.capabilities import register_capabilities_tools
@@ -43,8 +43,8 @@ def _resolve_project_path() -> str:
 
 
 @pytest.fixture
-def mcp_server() -> FastMCP:
-    mcp = FastMCP("live-test")
+def mcp_server() -> MCPServer:
+    mcp = MCPServer("live-test")
     register_capabilities_tools(mcp)
     register_editor_tools(mcp)
     register_introspection_tools(mcp)
@@ -68,8 +68,8 @@ def o3de_root() -> str:
     return str(Path(_resolve_project_path()).parent.parent)
 
 
-async def _call(mcp: FastMCP, tool_name: str, **kwargs) -> str:
-    content, _ = await mcp.call_tool(tool_name, kwargs)
+async def _call(mcp: MCPServer, tool_name: str, **kwargs) -> str:
+    content = (await mcp.call_tool(tool_name, kwargs)).content
     return content[0].text
 
 
@@ -102,7 +102,7 @@ requires_no_editor = pytest.mark.skipif(
 
 
 class TestCapabilities:
-    def test_all_tools_registered(self, mcp_server: FastMCP) -> None:
+    def test_all_tools_registered(self, mcp_server: MCPServer) -> None:
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
 
@@ -122,7 +122,7 @@ class TestCapabilities:
         assert cats["introspection_tools"]["tool_count"] == 3
         assert cats["capabilities_tools"]["tool_count"] == 1
 
-    def test_no_other_tools_category(self, mcp_server: FastMCP) -> None:
+    def test_no_other_tools_category(self, mcp_server: MCPServer) -> None:
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
 
@@ -134,12 +134,12 @@ class TestCapabilities:
         cats = parsed["tool_categories"]
         assert "other_tools" not in cats, f"Uncategorized tools found: {cats.get('other_tools')}"
 
-    def test_editor_status(self, mcp_server: FastMCP) -> None:
+    def test_editor_status(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_capabilities"))
         parsed = json.loads(result)
         assert parsed["editor"]["status"] in ("unreachable", "connected")
 
-    def test_cli_available(self, mcp_server: FastMCP, engine_path: str) -> None:
+    def test_cli_available(self, mcp_server: MCPServer, engine_path: str) -> None:
         async def _mock_probe(*a, **kw):
             from o3de_mcp.utils.capabilities import EditorStatus
 
@@ -153,13 +153,13 @@ class TestCapabilities:
 
 
 class TestProjectTools:
-    def test_get_engine_info(self, mcp_server: FastMCP, engine_path: str) -> None:
+    def test_get_engine_info(self, mcp_server: MCPServer, engine_path: str) -> None:
         result = _run(_call(mcp_server, "get_engine_info"))
         parsed = json.loads(result)
         assert "engine_path" in parsed
         assert "o3de" in parsed["engine_path"].lower()
 
-    def test_list_projects(self, mcp_server: FastMCP) -> None:
+    def test_list_projects(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "list_projects"))
         parsed = json.loads(result)
         if isinstance(parsed, list):
@@ -167,7 +167,7 @@ class TestProjectTools:
         elif isinstance(parsed, dict) and "status" in parsed:
             pass
 
-    def test_list_gems(self, mcp_server: FastMCP) -> None:
+    def test_list_gems(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "list_gems"))
         try:
             parsed = json.loads(result)
@@ -175,13 +175,13 @@ class TestProjectTools:
         except json.JSONDecodeError:
             pytest.fail(f"list_gems returned invalid JSON: {result}")
 
-    def test_list_project_gems(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_list_project_gems(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(_call(mcp_server, "list_project_gems", project_path=project_path))
         parsed = json.loads(result)
         assert "gems" in parsed
         assert parsed["count"] > 0
 
-    def test_list_templates(self, mcp_server: FastMCP) -> None:
+    def test_list_templates(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "list_templates"))
         try:
             parsed = json.loads(result)
@@ -192,11 +192,11 @@ class TestProjectTools:
         except json.JSONDecodeError:
             pass
 
-    def test_set_active_engine(self, mcp_server: FastMCP) -> None:
+    def test_set_active_engine(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "set_active_engine", name="o3de"))
         assert "o3de" in result
 
-    def test_get_build_status_not_found(self, mcp_server: FastMCP) -> None:
+    def test_get_build_status_not_found(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_build_status", build_id="fake123"))
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -204,7 +204,7 @@ class TestProjectTools:
 
 
 class TestAssetTools:
-    def test_asset_processor_running(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_asset_processor_running(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(_call(mcp_server, "get_asset_processor_status", project_path=project_path))
         parsed = json.loads(result)
         if parsed["running"]:
@@ -212,7 +212,7 @@ class TestAssetTools:
         else:
             pytest.skip("Asset Processor is not running")
 
-    def test_tail_log_editor(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_tail_log_editor(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(mcp_server, "tail_log", log_name="Editor", lines=10, project_path=project_path)
         )
@@ -222,7 +222,7 @@ class TestAssetTools:
             assert isinstance(parsed["lines"], list)
             assert len(parsed["lines"]) <= 10
 
-    def test_tail_log_asset_processor(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_tail_log_asset_processor(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(
                 mcp_server,
@@ -236,7 +236,7 @@ class TestAssetTools:
         if "error" not in parsed:
             assert "lines" in parsed
 
-    def test_tail_log_with_filter(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_tail_log_with_filter(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(
                 mcp_server,
@@ -252,7 +252,7 @@ class TestAssetTools:
             for line in parsed["lines"]:
                 assert re.search(r"INFO|WARNING|ERROR", line, re.IGNORECASE) or line == ""
 
-    def test_get_log_errors(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_get_log_errors(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(
                 mcp_server,
@@ -268,14 +268,16 @@ class TestAssetTools:
             assert "count" in parsed
             assert isinstance(parsed["errors"], list)
 
-    def test_tail_log_rejects_path_traversal(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_tail_log_rejects_path_traversal(
+        self, mcp_server: MCPServer, project_path: str
+    ) -> None:
         result = _run(
             _call(mcp_server, "tail_log", log_name="../etc/passwd", project_path=project_path)
         )
         parsed = json.loads(result)
         assert "error" in parsed
 
-    def test_tail_log_nonexistent_log(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_tail_log_nonexistent_log(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(mcp_server, "tail_log", log_name="NonExistentLog", project_path=project_path)
         )
@@ -284,7 +286,7 @@ class TestAssetTools:
 
 
 class TestIntrospectionTools:
-    def test_get_bus_schema_lists_modules(self, mcp_server: FastMCP, project_path: str) -> None:
+    def test_get_bus_schema_lists_modules(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(_call(mcp_server, "get_bus_schema", project_path=project_path))
         try:
             parsed = json.loads(result)
@@ -296,7 +298,7 @@ class TestIntrospectionTools:
             pytest.fail(f"Invalid JSON: {result}")
 
     @requires_no_editor
-    def test_capture_renderdoc_frame_returns_error(self, mcp_server: FastMCP) -> None:
+    def test_capture_renderdoc_frame_returns_error(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "capture_renderdoc_frame"))
         assert isinstance(result, str)
         try:
@@ -308,7 +310,7 @@ class TestIntrospectionTools:
 
 class TestEditorToolsGracefulFailure:
     @requires_no_editor
-    def test_list_entities_returns_error(self, mcp_server: FastMCP) -> None:
+    def test_list_entities_returns_error(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "list_entities"))
         assert isinstance(result, str)
         try:
@@ -318,7 +320,7 @@ class TestEditorToolsGracefulFailure:
             assert "error" in result.lower() or "unreachable" in result.lower()
 
     @requires_no_editor
-    def test_run_editor_python_returns_error(self, mcp_server: FastMCP) -> None:
+    def test_run_editor_python_returns_error(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "run_editor_python", script="print('hello')"))
         assert isinstance(result, str)
         try:
@@ -328,7 +330,7 @@ class TestEditorToolsGracefulFailure:
             assert "error" in result.lower() or "unreachable" in result.lower()
 
     @requires_no_editor
-    def test_get_transform_returns_error(self, mcp_server: FastMCP) -> None:
+    def test_get_transform_returns_error(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_transform", entity_id="123"))
         assert isinstance(result, str)
         try:
@@ -338,7 +340,7 @@ class TestEditorToolsGracefulFailure:
             pass
 
     @requires_no_editor
-    def test_run_console_command_returns_error(self, mcp_server: FastMCP) -> None:
+    def test_run_console_command_returns_error(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "run_console_command", command="r_displayInfo 0"))
         assert isinstance(result, str)
         try:
@@ -348,7 +350,7 @@ class TestEditorToolsGracefulFailure:
             pass
 
     @requires_no_editor
-    def test_capture_viewport_returns_error(self, mcp_server: FastMCP, tmp_path: Path) -> None:
+    def test_capture_viewport_returns_error(self, mcp_server: MCPServer, tmp_path: Path) -> None:
         result = _run(_call(mcp_server, "capture_viewport", output_path=str(tmp_path / "test.png")))
         assert isinstance(result, str)
         try:
@@ -358,7 +360,7 @@ class TestEditorToolsGracefulFailure:
             pass
 
     @requires_no_editor
-    def test_begin_session_returns_error(self, mcp_server: FastMCP) -> None:
+    def test_begin_session_returns_error(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "begin_session"))
         assert isinstance(result, str)
         try:
@@ -369,15 +371,15 @@ class TestEditorToolsGracefulFailure:
 
 
 class TestEdgeCases:
-    def test_invalid_entity_id(self, mcp_server: FastMCP) -> None:
+    def test_invalid_entity_id(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "get_transform", entity_id="not_a_number"))
 
-    def test_empty_entity_id(self, mcp_server: FastMCP) -> None:
+    def test_empty_entity_id(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "get_transform", entity_id=""))
 
-    def test_invalid_component_type(self, mcp_server: FastMCP) -> None:
+    def test_invalid_component_type(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(
                 _call(
@@ -388,89 +390,89 @@ class TestEdgeCases:
                 )
             )
 
-    def test_console_command_shell_injection(self, mcp_server: FastMCP) -> None:
+    def test_console_command_shell_injection(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "run_console_command", command="; rm -rf /"))
 
-    def test_console_command_pipe(self, mcp_server: FastMCP) -> None:
+    def test_console_command_pipe(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "run_console_command", command="r_fog | cat"))
 
-    def test_console_command_empty(self, mcp_server: FastMCP) -> None:
+    def test_console_command_empty(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "run_console_command", command=""))
 
-    def test_cvar_empty_name(self, mcp_server: FastMCP) -> None:
+    def test_cvar_empty_name(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "get_cvar", name=""))
 
-    def test_cvar_empty_value(self, mcp_server: FastMCP) -> None:
+    def test_cvar_empty_value(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "set_cvar", name="r_fog", value=""))
 
-    def test_prefab_wrong_extension(self, mcp_server: FastMCP) -> None:
+    def test_prefab_wrong_extension(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "instantiate_prefab", prefab_path="test.json"))
 
-    def test_prefab_path_traversal(self, mcp_server: FastMCP) -> None:
+    def test_prefab_path_traversal(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "instantiate_prefab", prefab_path="../escape.prefab"))
 
-    def test_prefab_empty_path(self, mcp_server: FastMCP) -> None:
+    def test_prefab_empty_path(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "instantiate_prefab", prefab_path=""))
 
-    def test_transform_wrong_position_length(self, mcp_server: FastMCP) -> None:
+    def test_transform_wrong_position_length(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "set_transform", entity_id="123", position=[1, 2]))
 
-    def test_transform_wrong_rotation_length(self, mcp_server: FastMCP) -> None:
+    def test_transform_wrong_rotation_length(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "set_transform", entity_id="123", rotation=[0, 0, 0]))
 
-    def test_transform_non_numeric_position(self, mcp_server: FastMCP) -> None:
+    def test_transform_non_numeric_position(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "set_transform", entity_id="123", position=["a", "b", "c"]))
 
-    def test_transform_position_not_a_list(self, mcp_server: FastMCP) -> None:
+    def test_transform_position_not_a_list(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(
                 _call(mcp_server, "set_transform", entity_id="123", position=42)  # type: ignore[arg-type]
             )
 
-    def test_viewport_invalid_extension(self, mcp_server: FastMCP) -> None:
+    def test_viewport_invalid_extension(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "capture_viewport", output_path="test.txt"))
 
-    def test_viewport_empty_path(self, mcp_server: FastMCP) -> None:
+    def test_viewport_empty_path(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "capture_viewport", output_path=""))
 
-    def test_level_invalid_name_starts_with_number(self, mcp_server: FastMCP) -> None:
+    def test_level_invalid_name_starts_with_number(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "create_level", name="123Level"))
 
-    def test_level_invalid_name_with_spaces(self, mcp_server: FastMCP) -> None:
+    def test_level_invalid_name_with_spaces(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "create_level", name="My Level"))
 
-    def test_level_empty_name(self, mcp_server: FastMCP) -> None:
+    def test_level_empty_name(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "create_level", name=""))
 
-    def test_session_empty_id(self, mcp_server: FastMCP) -> None:
+    def test_session_empty_id(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "end_session", session_id=""))
 
-    def test_session_empty_script(self, mcp_server: FastMCP) -> None:
+    def test_session_empty_script(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "exec_in_session", session_id="abc", script=""))
 
-    def test_build_empty_id(self, mcp_server: FastMCP) -> None:
+    def test_build_empty_id(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "get_build_status", build_id=""))
 
-    def test_build_invalid_config(self, mcp_server: FastMCP, tmp_path: Path) -> None:
+    def test_build_invalid_config(self, mcp_server: MCPServer, tmp_path: Path) -> None:
         build_dir = tmp_path / "build" / "windows"
         build_dir.mkdir(parents=True)
         result = _run(
@@ -484,7 +486,7 @@ class TestEdgeCases:
         parsed = json.loads(result)
         assert parsed["status"] == "error"
 
-    def test_asset_path_traversal(self, mcp_server: FastMCP) -> None:
+    def test_asset_path_traversal(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(
                 _call(
@@ -497,7 +499,7 @@ class TestEdgeCases:
                 )
             )
 
-    def test_asset_empty_path(self, mcp_server: FastMCP) -> None:
+    def test_asset_empty_path(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(
                 _call(
@@ -510,7 +512,7 @@ class TestEdgeCases:
                 )
             )
 
-    def test_project_name_invalid(self, mcp_server: FastMCP) -> None:
+    def test_project_name_invalid(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
             _run(_call(mcp_server, "set_active_engine", name="123Invalid"))
 
@@ -610,7 +612,7 @@ class TestAllToolsCallable:
 
     def test_all_tools_callable(
         self,
-        mcp_server: FastMCP,
+        mcp_server: MCPServer,
         engine_path: str,
         project_path: str,
         o3de_root: str,
@@ -681,6 +683,6 @@ class TestAllToolsCallable:
             f"Only {len(successes)} tools succeeded. Validation errors: {validation_errors}"
         )
 
-    def test_tool_count_matches(self, mcp_server: FastMCP) -> None:
+    def test_tool_count_matches(self, mcp_server: MCPServer) -> None:
         tools = mcp_server._tool_manager.list_tools()
         assert len(tools) == 63, f"Expected 63 tools, got {len(tools)}: {[t.name for t in tools]}"

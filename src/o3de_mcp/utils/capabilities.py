@@ -17,7 +17,7 @@ from o3de_mcp.tools.editor import _get_editor_host, _get_editor_port
 from o3de_mcp.utils.o3de import find_o3de_cli, find_o3de_engine_path, find_o3de_engine_version
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server import MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -168,8 +168,8 @@ def probe_cli() -> dict:
     }
 
 
-def _discover_tool_categories(mcp: FastMCP | None) -> dict:
-    """Categorize registered tools from the FastMCP instance."""
+def _discover_tool_categories(mcp: MCPServer | None) -> dict:
+    """Categorize registered tools from the MCPServer instance."""
     if mcp is None:
         return {
             "editor_tools": list(_EDITOR_TOOLS),
@@ -184,7 +184,7 @@ def _discover_tool_categories(mcp: FastMCP | None) -> dict:
         for tool in mcp._tool_manager.list_tools():
             registered.add(tool.name)
     except AttributeError:
-        logger.debug("Could not introspect FastMCP tool registry.")
+        logger.debug("Could not introspect MCPServer tool registry.")
         return {
             "editor_tools": list(_EDITOR_TOOLS),
             "project_tools": list(_PROJECT_TOOLS),
@@ -211,7 +211,7 @@ def _discover_tool_categories(mcp: FastMCP | None) -> dict:
     return categorized
 
 
-async def get_server_capabilities(mcp: FastMCP | None = None) -> dict:
+async def get_server_capabilities(mcp: MCPServer | None = None) -> dict:
     """Aggregate editor and CLI probing into a single capabilities report."""
     host = _get_editor_host()
     port = _get_editor_port()

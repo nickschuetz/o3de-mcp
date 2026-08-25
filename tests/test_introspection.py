@@ -183,7 +183,7 @@ class TestGetBusSchemaLive:
         import json
         from unittest.mock import AsyncMock, patch
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.introspection import register_introspection_tools
 
@@ -192,17 +192,19 @@ class TestGetBusSchemaLive:
         )
 
         async def run() -> str:
-            mcp = FastMCP("test")
+            mcp = MCPServer("test")
             register_introspection_tools(mcp)
             with patch(
                 "o3de_mcp.tools.editor._async_run_editor_script",
                 new_callable=AsyncMock,
                 return_value=live_json,
             ):
-                content, _ = await mcp.call_tool(
-                    "get_bus_schema_live",
-                    {"module": "physics", "bus": "PhysicsRequestBus"},
-                )
+                content = (
+                    await mcp.call_tool(
+                        "get_bus_schema_live",
+                        {"module": "physics", "bus": "PhysicsRequestBus"},
+                    )
+                ).content
                 return content[0].text
 
         result = asyncio.run(run())
@@ -216,7 +218,7 @@ class TestGetBusSchemaLive:
         import json
         from unittest.mock import AsyncMock, patch
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.introspection import register_introspection_tools
 
@@ -226,21 +228,23 @@ class TestGetBusSchemaLive:
         error_response = json.dumps({"source": "error", "error": "Connection refused"})
 
         async def run() -> str:
-            mcp = FastMCP("test")
+            mcp = MCPServer("test")
             register_introspection_tools(mcp)
             with patch(
                 "o3de_mcp.tools.editor._async_run_editor_script",
                 new_callable=AsyncMock,
                 return_value=error_response,
             ):
-                content, _ = await mcp.call_tool(
-                    "get_bus_schema_live",
-                    {
-                        "module": "diorama",
-                        "bus": "DioramaSpriteRequestBus",
-                        "project_path": str(tmp_path),
-                    },
-                )
+                content = (
+                    await mcp.call_tool(
+                        "get_bus_schema_live",
+                        {
+                            "module": "diorama",
+                            "bus": "DioramaSpriteRequestBus",
+                            "project_path": str(tmp_path),
+                        },
+                    )
+                ).content
                 return content[0].text
 
         result = asyncio.run(run())
@@ -256,21 +260,21 @@ class TestCaptureRenderdocFrame:
         import json
         from unittest.mock import AsyncMock, patch
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.introspection import register_introspection_tools
 
         capture_json = json.dumps({"status": "ok", "message": "RenderDoc frame capture triggered."})
 
         async def run() -> str:
-            mcp = FastMCP("test")
+            mcp = MCPServer("test")
             register_introspection_tools(mcp)
             with patch(
                 "o3de_mcp.tools.editor._async_run_editor_script",
                 new_callable=AsyncMock,
                 return_value=capture_json,
             ):
-                content, _ = await mcp.call_tool("capture_renderdoc_frame", {})
+                content = (await mcp.call_tool("capture_renderdoc_frame", {})).content
                 return content[0].text
 
         result = asyncio.run(run())
@@ -284,21 +288,21 @@ class TestCaptureRenderdocFrame:
         import json
         from unittest.mock import AsyncMock, patch
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.introspection import register_introspection_tools
 
         error_json = json.dumps({"status": "error", "message": "RenderDoc not attached."})
 
         async def run() -> str:
-            mcp = FastMCP("test")
+            mcp = MCPServer("test")
             register_introspection_tools(mcp)
             with patch(
                 "o3de_mcp.tools.editor._async_run_editor_script",
                 new_callable=AsyncMock,
                 return_value=error_json,
             ):
-                content, _ = await mcp.call_tool("capture_renderdoc_frame", {})
+                content = (await mcp.call_tool("capture_renderdoc_frame", {})).content
                 return content[0].text
 
         result = asyncio.run(run())

@@ -437,19 +437,19 @@ class TestProtocolRoundTrip:
 
 
 async def _call_tool(tool_name: str, arguments: dict, mock_output: str = "ok") -> str:
-    """Register editor tools on a throwaway FastMCP and call a tool with a mocked pool.
+    """Register editor tools on a throwaway MCPServer and call a tool with a mocked pool.
 
     Returns the text content of the tool's response.
     """
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server import MCPServer
 
     from o3de_mcp.tools.editor import register_editor_tools
 
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_editor_tools(mcp)
     with patch("o3de_mcp.tools.editor._pool") as mock_pool:
         mock_pool.send_script = AsyncMock(return_value=mock_output)
-        content, _ = await mcp.call_tool(tool_name, arguments)
+        content = (await mcp.call_tool(tool_name, arguments)).content
     return content[0].text
 
 
@@ -460,15 +460,15 @@ async def _call_capture_raw(output_path: str, send) -> str:
     need the file to appear *while the client is polling* -- creating it up
     front would let them pass without any waiting having happened.
     """
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server import MCPServer
 
     from o3de_mcp.tools.editor import register_editor_tools
 
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_editor_tools(mcp)
     with patch("o3de_mcp.tools.editor._pool") as mock_pool:
         mock_pool.send_script = send
-        content, _ = await mcp.call_tool("capture_viewport", {"output_path": output_path})
+        content = (await mcp.call_tool("capture_viewport", {"output_path": output_path})).content
     return content[0].text
 
 
@@ -987,11 +987,11 @@ class TestCaptureViewport:
             captured["script"] = script
             return "CAPTURE_ISSUED 1"
 
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from o3de_mcp.tools.editor import register_editor_tools
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         register_editor_tools(mcp)
         with patch("o3de_mcp.tools.editor._pool") as mock_pool:
             mock_pool.send_script = AsyncMock(side_effect=_record)
