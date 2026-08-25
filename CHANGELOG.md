@@ -18,6 +18,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dependencies carry upper bounds. Previously every range was open-ended, so
   the `mcp` 2.0 release broke CI on `main` with no warning.
 
+### Fixed
+
+- **`build_project` crashed instead of reporting a rejected symlink.** The
+  build directory was created with `mkdir(exist_ok=True)` before the symlink
+  guard ran, and that raises `FileExistsError` when the path is a symlink whose
+  target does not exist. The guard now runs first, so both broken and intact
+  symlinks return the intended `symlink_rejected` error.
+
+### Testing
+
+- **Every registered tool is now exercised through MCP dispatch.** The eight
+  CLI-backed project tools (`create_project`, `create_gem`, `register_gem`,
+  `enable_gem`, `disable_gem`, `edit_project_properties`, `build_project`,
+  `export_project`) were previously only covered via their helpers, because
+  invoking them shells out to the O3DE CLI or CMake. They now have dispatch
+  tests with the subprocess layer mocked, asserting on the arguments actually
+  handed to the CLI. All 63 registered tools are now invoked at least once
+  through `call_tool`. This covers dispatch and argument marshalling only: the
+  editor tools still mock the remote console socket, so none of it exercises a
+  running O3DE Editor.
+
 ### Added
 
 - **20 new tools** across 4 categories:

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from mcp.server import MCPServer
 
 from o3de_mcp.tools.project import (
     _detect_vs_generator,
@@ -23,6 +25,7 @@ from o3de_mcp.tools.project import (
     _get_export_timeout,
     _validate_name,
     _validate_path,
+    register_project_tools,
 )
 from o3de_mcp.utils.o3de import (
     _ManifestCache,
@@ -774,3 +777,371 @@ class TestGetBuildStatus:
 
         with pytest.raises(Exception):
             asyncio.run(mcp.call_tool("get_build_status", {"build_id": ""}))
+
+
+# --- MCP dispatch tests for the CLI-backed project tools ---
+#
+# The tools below shell out to the O3DE CLI or CMake, so the rest of the suite
+# exercises their helpers directly rather than invoking them. These tests drive
+# each one through ``call_tool`` with the subprocess layer mocked, which covers
+# argument marshalling across the MCP boundary.
+
+
+def _dispatch(tool_name: str, arguments: dict[str, object]) -> str:
+    """Invoke a project tool through MCP dispatch and return its text payload."""
+    mcp = MCPServer("test")
+    register_project_tools(mcp)
+    content = asyncio.run(mcp.call_tool(tool_name, arguments)).content
+    return str(content[0].text)
+
+
+def _cli_ok(stdout: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+
+
+def _cli_fail(stderr: str = "boom") -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr)
+
+
+class TestCreateProjectDispatch:
+    def test_passes_arguments_to_cli(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            text = _dispatch(
+                "create_project",
+                {"name": "MyGame", "path": str(tmp_path), "template": "Minimal"},
+            )
+
+        assert "MyGame" in text
+        assert cli.call_args.args[0] == [
+            "create-project",
+            "--project-name",
+            "MyGame",
+            "--project-path",
+            str(tmp_path.resolve()),
+            "--template-name",
+            "Minimal",
+        ]
+
+    def test_defaults_to_default_project_template(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            _dispatch("create_project", {"name": "MyGame", "path": str(tmp_path)})
+
+        assert cli.call_args.args[0][-1] == "DefaultProject"
+
+    def test_reports_cli_failure(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_fail("disk full")):
+            text = _dispatch("create_project", {"name": "MyGame", "path": str(tmp_path)})
+
+        parsed = json.loads(text)
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "create_failed"
+        assert "disk full" in parsed["message"]
+
+    def test_rejects_invalid_name(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli") as cli:
+            with pytest.raises(Exception):
+                _dispatch("create_project", {"name": "../evil", "path": str(tmp_path)})
+
+        cli.assert_not_called()
+
+
+class TestCreateGemDispatch:
+    def test_passes_arguments_to_cli(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            text = _dispatch("create_gem", {"name": "MyGem", "path": str(tmp_path)})
+
+        assert "MyGem" in text
+        assert cli.call_args.args[0] == [
+            "create-gem",
+            "--gem-name",
+            "MyGem",
+            "--gem-path",
+            str(tmp_path.resolve()),
+            "--template-name",
+            "DefaultGem",
+        ]
+
+    def test_reports_cli_failure(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_fail()):
+            text = _dispatch("create_gem", {"name": "MyGem", "path": str(tmp_path)})
+
+        assert json.loads(text)["code"] == "create_failed"
+
+
+class TestRegisterGemDispatch:
+    def test_passes_resolved_paths_to_cli(self, tmp_path: Path) -> None:
+        gem = tmp_path / "gem"
+        project = tmp_path / "project"
+        gem.mkdir()
+        project.mkdir()
+
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            text = _dispatch("register_gem", {"gem_path": str(gem), "project_path": str(project)})
+
+        assert "registered" in text
+        assert cli.call_args.args[0] == [
+            "register",
+            "--gem-path",
+            str(gem.resolve()),
+            "--project-path",
+            str(project.resolve()),
+        ]
+
+    def test_rejects_missing_gem_path(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli") as cli:
+            with pytest.raises(Exception):
+                _dispatch(
+                    "register_gem",
+                    {"gem_path": str(tmp_path / "absent"), "project_path": str(tmp_path)},
+                )
+
+        cli.assert_not_called()
+
+    def test_reports_cli_failure(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_fail()):
+            text = _dispatch(
+                "register_gem", {"gem_path": str(tmp_path), "project_path": str(tmp_path)}
+            )
+
+        assert json.loads(text)["code"] == "register_failed"
+
+
+class TestEnableGemDispatch:
+    def test_passes_arguments_to_cli(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            text = _dispatch("enable_gem", {"gem_name": "Atom", "project_path": str(tmp_path)})
+
+        assert "enabled" in text
+        assert cli.call_args.args[0] == [
+            "enable-gem",
+            "--gem-name",
+            "Atom",
+            "--project-path",
+            str(tmp_path.resolve()),
+        ]
+
+    def test_reports_cli_failure(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_fail()):
+            text = _dispatch("enable_gem", {"gem_name": "Atom", "project_path": str(tmp_path)})
+
+        assert json.loads(text)["code"] == "enable_failed"
+
+
+class TestDisableGemDispatch:
+    def test_passes_arguments_to_cli(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            text = _dispatch("disable_gem", {"gem_name": "Atom", "project_path": str(tmp_path)})
+
+        assert "disabled" in text
+        assert cli.call_args.args[0] == [
+            "disable-gem",
+            "--gem-name",
+            "Atom",
+            "--project-path",
+            str(tmp_path.resolve()),
+        ]
+
+    def test_reports_cli_failure(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_fail()):
+            text = _dispatch("disable_gem", {"gem_name": "Atom", "project_path": str(tmp_path)})
+
+        assert json.loads(text)["code"] == "disable_failed"
+
+
+class TestEditProjectPropertiesDispatch:
+    def test_sends_only_the_supplied_properties(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            text = _dispatch(
+                "edit_project_properties",
+                {"project_path": str(tmp_path), "origin": "https://example.invalid"},
+            )
+
+        assert "updated" in text
+        assert cli.call_args.args[0] == [
+            "edit-project-properties",
+            "--project-path",
+            str(tmp_path.resolve()),
+            "--origin",
+            "https://example.invalid",
+        ]
+
+    def test_sends_both_properties(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            _dispatch(
+                "edit_project_properties",
+                {"project_path": str(tmp_path), "project_name": "Renamed", "origin": "o"},
+            )
+
+        args = cli.call_args.args[0]
+        assert args[3:5] == ["--project-name", "Renamed"]
+        assert args[5:7] == ["--origin", "o"]
+
+    def test_rejects_a_no_op_edit(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli") as cli:
+            text = _dispatch("edit_project_properties", {"project_path": str(tmp_path)})
+
+        assert json.loads(text)["code"] == "no_changes"
+        cli.assert_not_called()
+
+
+class TestBuildProjectDispatch:
+    def test_runs_configure_then_build(self, tmp_path: Path) -> None:
+        engine = tmp_path / "engine"
+        engine.mkdir()
+
+        with (
+            patch("o3de_mcp.tools.project.find_o3de_engine_path", return_value=engine),
+            patch("o3de_mcp.tools.project._get_cmake_generator", return_value=None),
+            patch("o3de_mcp.tools.project.subprocess.run", return_value=_cli_ok()) as run,
+        ):
+            text = _dispatch("build_project", {"project_path": str(tmp_path), "config": "debug"})
+
+        assert "built successfully" in text
+        assert run.call_count == 2
+
+        configure_cmd = run.call_args_list[0].args[0]
+        build_cmd = run.call_args_list[1].args[0]
+        assert configure_cmd[:5] == [
+            "cmake",
+            "-S",
+            str(tmp_path.resolve()),
+            "-B",
+            str((tmp_path / "build").resolve()),
+        ]
+        assert configure_cmd[5] == f"-DLY_ENGINE_PATH={engine.as_posix()}"
+        assert build_cmd == [
+            "cmake",
+            "--build",
+            str((tmp_path / "build").resolve()),
+            "--config",
+            "debug",
+            "--parallel",
+        ]
+
+    def test_appends_generator_when_one_is_detected(self, tmp_path: Path) -> None:
+        with (
+            patch("o3de_mcp.tools.project.find_o3de_engine_path", return_value=tmp_path),
+            patch("o3de_mcp.tools.project._get_cmake_generator", return_value="Ninja"),
+            patch("o3de_mcp.tools.project.subprocess.run", return_value=_cli_ok()) as run,
+        ):
+            _dispatch("build_project", {"project_path": str(tmp_path)})
+
+        assert run.call_args_list[0].args[0][-2:] == ["-G", "Ninja"]
+
+    def test_rejects_invalid_config(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.subprocess.run") as run:
+            text = _dispatch("build_project", {"project_path": str(tmp_path), "config": "nonsense"})
+
+        assert json.loads(text)["code"] == "invalid_config"
+        run.assert_not_called()
+
+    def test_reports_missing_engine(self, tmp_path: Path) -> None:
+        with (
+            patch("o3de_mcp.tools.project.find_o3de_engine_path", return_value=None),
+            patch("o3de_mcp.tools.project.subprocess.run") as run,
+        ):
+            text = _dispatch("build_project", {"project_path": str(tmp_path)})
+
+        assert json.loads(text)["code"] == "engine_not_found"
+        run.assert_not_called()
+
+    def test_reports_configure_failure_without_building(self, tmp_path: Path) -> None:
+        with (
+            patch("o3de_mcp.tools.project.find_o3de_engine_path", return_value=tmp_path),
+            patch("o3de_mcp.tools.project._get_cmake_generator", return_value=None),
+            patch(
+                "o3de_mcp.tools.project.subprocess.run",
+                return_value=_cli_fail("missing toolchain"),
+            ) as run,
+        ):
+            text = _dispatch("build_project", {"project_path": str(tmp_path)})
+
+        parsed = json.loads(text)
+        assert parsed["code"] == "configure_failed"
+        assert "missing toolchain" in parsed["message"]
+        assert run.call_count == 1
+
+    def test_reports_build_failure(self, tmp_path: Path) -> None:
+        with (
+            patch("o3de_mcp.tools.project.find_o3de_engine_path", return_value=tmp_path),
+            patch("o3de_mcp.tools.project._get_cmake_generator", return_value=None),
+            patch(
+                "o3de_mcp.tools.project.subprocess.run",
+                side_effect=[_cli_ok(), _cli_fail("compile error")],
+            ),
+        ):
+            text = _dispatch("build_project", {"project_path": str(tmp_path)})
+
+        parsed = json.loads(text)
+        assert parsed["code"] == "build_failed"
+        assert "compile error" in parsed["message"]
+
+    @pytest.mark.parametrize("target_exists", [True, False])
+    def test_rejects_a_symlinked_build_directory(self, tmp_path: Path, target_exists: bool) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        target = tmp_path / "elsewhere"
+        if target_exists:
+            target.mkdir()
+        (project / "build").symlink_to(target)
+
+        with patch("o3de_mcp.tools.project.subprocess.run") as run:
+            text = _dispatch("build_project", {"project_path": str(project)})
+
+        assert json.loads(text)["code"] == "symlink_rejected"
+        run.assert_not_called()
+
+
+class TestExportProjectDispatch:
+    def test_passes_arguments_to_cli(self, tmp_path: Path) -> None:
+        out = tmp_path / "out"
+
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_ok()) as cli:
+            text = _dispatch(
+                "export_project",
+                {"project_path": str(tmp_path), "output_path": str(out), "config": "release"},
+            )
+
+        assert "exported successfully" in text
+        assert cli.call_args.args[0] == [
+            "export-project",
+            "--project-path",
+            str(tmp_path.resolve()),
+            "--output-path",
+            str(out.resolve()),
+            "--config",
+            "release",
+        ]
+
+    def test_rejects_invalid_config(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli") as cli:
+            text = _dispatch(
+                "export_project",
+                {"project_path": str(tmp_path), "output_path": str(tmp_path), "config": "nope"},
+            )
+
+        assert json.loads(text)["code"] == "invalid_config"
+        cli.assert_not_called()
+
+    def test_reports_a_timeout(self, tmp_path: Path) -> None:
+        with patch(
+            "o3de_mcp.tools.project.run_o3de_cli",
+            side_effect=subprocess.TimeoutExpired(cmd="o3de", timeout=1),
+        ):
+            text = _dispatch(
+                "export_project",
+                {"project_path": str(tmp_path), "output_path": str(tmp_path)},
+            )
+
+        parsed = json.loads(text)
+        assert parsed["code"] == "export_timeout"
+        assert "O3DE_EXPORT_TIMEOUT" in parsed["message"]
+
+    def test_reports_cli_failure(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.tools.project.run_o3de_cli", return_value=_cli_fail()):
+            text = _dispatch(
+                "export_project",
+                {"project_path": str(tmp_path), "output_path": str(tmp_path)},
+            )
+
+        assert json.loads(text)["code"] == "export_failed"
