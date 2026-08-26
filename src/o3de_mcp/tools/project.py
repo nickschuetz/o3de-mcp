@@ -394,13 +394,16 @@ def register_project_tools(mcp: MCPServer) -> None:
 
         project = _validate_path(project_path, "Project path", must_exist=True)
         build_dir = project / "build"
-        build_dir.mkdir(exist_ok=True)
 
+        # Check before creating: ``mkdir(exist_ok=True)`` raises on a symlink
+        # whose target does not exist, which would bypass this guard.
         if build_dir.is_symlink():
             return _format_error(
                 "symlink_rejected",
                 f"Build directory is a symlink, which is not allowed: {build_dir}",
             )
+
+        build_dir.mkdir(exist_ok=True)
 
         engine_path = find_o3de_engine_path()
         if engine_path is None:
