@@ -8,26 +8,41 @@ See the [architecture documentation](docs/architecture.md) for a detailed system
 
 ## Features
 
-**Capability Detection**:
+63 tools across five categories. See [`docs/tool-reference.md`](docs/tool-reference.md) for every parameter.
+
+**Capability Detection** (1 tool):
 - `get_capabilities` — check editor connectivity and CLI availability before using other tools
 - Dynamic tool discovery — new tools are automatically reported
 
-**Editor Automation** (requires a running O3DE Editor with the AiCompanion + EditorPythonBindings gems):
+**Editor Automation** (37 tools, requires a running O3DE Editor with the AiCompanion + EditorPythonBindings gems):
 - Execute arbitrary Python scripts inside the editor (`azlmbr` API)
-- List, create, delete, and duplicate entities
-- Add components, get/set component properties
-- Load, save, and query levels
+- List, create, delete, and duplicate entities; reparent with `set_parent`
+- Add and remove components, get/set component properties, assign assets by path
+- Get and set transforms
+- Create, save, and instantiate prefabs
+- Create, load, save, and query levels
+- Viewport camera control, entity focus, and screenshot capture
+- Run console commands, get/set CVARs
 - Enter/exit game mode, undo/redo
+- Persistent scripting sessions (`begin_session` / `exec_in_session` / `get_session_vars` / `end_session`) that keep Python state alive across calls
 - Fast-fail when editor is unreachable (avoids repeated timeouts)
 
-**Project & Build Management** (CLI-based, no editor required):
-- Discover local O3DE engine installations (multi-engine support)
+**Engine Introspection** (3 tools):
+- EBus schema discovery, both from generated `azlmbr` stubs and live from the editor
+- RenderDoc frame capture
+
+**Project & Build Management** (17 tools, CLI-based, no editor required):
+- Discover local O3DE engine installations (multi-engine support), register engines, select the active one
 - List registered projects, gems, and available templates
 - Create projects and gems from templates
 - Register, enable, and disable gems
 - Edit project properties
-- Build projects via CMake
+- Build projects via CMake, either blocking (`build_project`) or in the background (`start_build` / `get_build_status`)
 - Export projects for distribution
+
+**Asset Pipeline** (5 tools, no editor required):
+- Asset Processor status, asset refresh, and wait-for-completion
+- Tail editor and Asset Processor logs, filter for errors
 
 ## Prerequisites
 
@@ -151,7 +166,7 @@ GitHub Actions runs lint, type checking, tests, and SBOM generation on every pus
 |----------|----------|-------------|
 | [AGENTS.md](AGENTS.md) | AI agents | Token-efficient usage guide, decision trees, error handling |
 | [docs/architecture.md](docs/architecture.md) | Developers & agents | System architecture diagram and communication flows |
-| [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all tools |
+| [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 63 tools |
 | [docs/recipes.md](docs/recipes.md) | Agents & developers | Composable patterns for scenes, physics, lighting, scripting |
 | [docs/components.md](docs/components.md) | Agents & developers | O3DE component name catalog with dependency chains |
 
@@ -174,10 +189,15 @@ Progressive walkthroughs from project creation to a complete game:
 |---|---|---|
 | `O3DE_ENGINE_PATH` | Override automatic engine discovery | Auto-detected from manifest |
 | `O3DE_ENGINE_NAME` | Select engine by name when multiple are registered | First valid engine |
-| `O3DE_EDITOR_HOST` | Editor remote console host | `127.0.0.1` |
-| `O3DE_EDITOR_PORT` | Editor remote console port | `4600` |
+| `O3DE_PROJECT_PATH` | Select the project for asset and introspection tools | Single registered project |
+| `O3DE_EDITOR_HOST` | Editor AgentServer host | `127.0.0.1` |
+| `O3DE_EDITOR_PORT` | Editor AgentServer port | `4600` |
 | `O3DE_EDITOR_TIMEOUT` | Per-command editor execution timeout (seconds) | `600` |
 | `O3DE_EDITOR_CONNECT_TIMEOUT` | Editor TCP connect timeout (seconds) | `5` |
+| `O3DE_CAPTURE_WAIT` | How long to wait for a viewport capture to reach disk (seconds) | `15` |
+| `O3DE_EDITOR_TLS` | Wrap the editor connection in TLS (`1` or `true` to enable) | `0` (disabled) |
+| `O3DE_EDITOR_TLS_VERIFY` | Verify the editor's certificate and hostname | `0` (disabled) |
+| `O3DE_EDITOR_TLS_CA` | CA bundle used when verification is enabled | System defaults |
 | `O3DE_CMAKE_GENERATOR` | CMake generator for builds | Auto-detected per platform |
 | `O3DE_CONFIGURE_TIMEOUT` | CMake configure timeout (seconds) | `600` |
 | `O3DE_BUILD_TIMEOUT` | CMake build timeout (seconds) | `1800` |
@@ -191,6 +211,13 @@ Progressive walkthroughs from project creation to a complete game:
 > is caught in milliseconds by the separate `O3DE_EDITOR_CONNECT_TIMEOUT` and the
 > fast-fail window, so a large command timeout costs nothing on the healthy path.
 > `run_editor_python` also accepts a per-call `timeout` argument.
+
+> **Editor TLS:** the connection is plaintext by default, which is the right
+> default for the normal case of an editor on `127.0.0.1`. If you point
+> `O3DE_EDITOR_HOST` at a remote machine, set `O3DE_EDITOR_TLS=1` **and**
+> `O3DE_EDITOR_TLS_VERIFY=1`. Enabling TLS on its own leaves certificate and
+> hostname checking off, which encrypts the channel but does not authenticate
+> the peer.
 
 The server also reads the O3DE manifest for registered engines, projects, and gems:
 - **Linux/macOS:** `~/.o3de/o3de_manifest.json`

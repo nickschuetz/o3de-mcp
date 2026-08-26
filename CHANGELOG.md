@@ -39,6 +39,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   editor tools still mock the remote console socket, so none of it exercises a
   running O3DE Editor.
 
+### Documentation
+
+- **Corrected the editor protocol description.** `CLAUDE.md` described only the
+  legacy RemoteConsole `pyRunScript` fallback. The primary protocol is the
+  AiCompanion gem's AgentServer (length-prefixed JSON), with RemoteConsole as an
+  automatic fallback. `README.md` and `docs/architecture.md` were already correct.
+- **Documented the full tool surface.** `README.md`, `AGENTS.md`, `CLAUDE.md` and
+  `docs/architecture.md` described three tool categories and stale counts (16
+  editor, 12 project). There are 63 tools in five categories: capabilities (1),
+  editor (37), introspection (3), project (17), assets (5). `tools/assets.py` was
+  missing entirely from the architecture diagram and module table.
+- **Documented five missing environment variables.** `O3DE_PROJECT_PATH`,
+  `O3DE_CAPTURE_WAIT`, `O3DE_EDITOR_TLS`, `O3DE_EDITOR_TLS_VERIFY` and
+  `O3DE_EDITOR_TLS_CA` were read by the code but appeared in no documentation.
+  The README now also notes that enabling TLS without `O3DE_EDITOR_TLS_VERIFY=1`
+  encrypts the channel without authenticating the peer.
+- **Added a tool-surface table to `AGENTS.md`**, listing each group, its size,
+  whether it needs a running editor, and the less discoverable tools (persistent
+  sessions, background builds, viewport capture, EBus discovery, log tailing).
+- Corrected the example count (eight, not seven) and added `docs/architecture.md`
+  to the `CLAUDE.md` documentation index.
+
 ### Added
 
 - **20 new tools** across 4 categories:

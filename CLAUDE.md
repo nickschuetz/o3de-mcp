@@ -4,10 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. Three tool categories:
-- **Capabilities tools** (`src/o3de_mcp/tools/capabilities.py`) — runtime detection of editor connectivity and CLI availability. Call `get_capabilities()` first to know what's available.
-- **Editor tools** (`src/o3de_mcp/tools/editor.py`) — send Python scripts to a running O3DE Editor via its remote console socket (port 4600). Requires RemoteConsole + EditorPythonBindings gems active in the editor. Fast-fails when editor is unreachable.
-- **Project tools** (`src/o3de_mcp/tools/project.py`) — wrap the O3DE CLI (`scripts/o3de.sh` / `o3de.bat`) and CMake for project creation, gem management, builds, and export.
+An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. 63 tools across five categories:
+- **Capabilities tools** (`src/o3de_mcp/tools/capabilities.py`, 1 tool) — runtime detection of editor connectivity and CLI availability. Call `get_capabilities()` first to know what's available.
+- **Editor tools** (`src/o3de_mcp/tools/editor.py`, 37 tools) — send Python scripts to a running O3DE Editor over TCP port 4600. Covers entities, components, transforms, prefabs, levels, viewport/camera, console and CVARs, game mode, undo/redo, and persistent scripting sessions. Requires the AiCompanion gem (which bundles EditorPythonBindings) active in the editor. Fast-fails when the editor is unreachable.
+- **Introspection tools** (`src/o3de_mcp/tools/introspection.py`, 3 tools) — EBus schema discovery (static stub parsing and live query) plus RenderDoc frame capture.
+- **Project tools** (`src/o3de_mcp/tools/project.py`, 17 tools) — wrap the O3DE CLI (`scripts/o3de.sh` / `o3de.bat`) and CMake for project creation, gem management, engine registration, builds (blocking and background), and export.
+- **Asset tools** (`src/o3de_mcp/tools/assets.py`, 5 tools) — Asset Processor status, asset refresh/wait, and log tailing.
 
 ## Commands
 
@@ -37,20 +39,23 @@ python scripts/generate-sbom.py
 
 ```
 src/o3de_mcp/
-├── server.py          # MCPServer entry point — registers all tools, called via `o3de-mcp` CLI
+├── server.py            # MCPServer entry point — registers all tools, called via `o3de-mcp` CLI
 ├── tools/
-│   ├── capabilities.py # Capability detection tool (get_capabilities)
-│   ├── editor.py      # Editor automation tools (socket → remote console)
-│   └── project.py     # Project/build management tools (subprocess → o3de CLI + cmake)
+│   ├── capabilities.py  # Capability detection tool (get_capabilities)
+│   ├── editor.py        # Editor automation tools (socket → AgentServer)
+│   ├── introspection.py # EBus schema discovery, RenderDoc capture
+│   ├── project.py       # Project/build management tools (subprocess → o3de CLI + cmake)
+│   └── assets.py        # Asset Processor status, refresh/wait, log tailing
 └── utils/
-    ├── capabilities.py # Runtime probing (editor connectivity, CLI availability)
-    └── o3de.py         # Engine/manifest discovery, CLI runner, project/gem listing
+    ├── capabilities.py  # Runtime probing (editor connectivity, CLI availability)
+    ├── introspection.py # azlmbr stub parsing for the EBus schema
+    └── o3de.py          # Engine/manifest discovery, CLI runner, project/gem listing
 ```
 
 - **server.py** creates a `MCPServer` instance and calls `register_*_tools(mcp)` from each tool module. Each tool module defines a `register_*_tools` function that decorates functions with `@mcp.tool()`.
 - **utils/capabilities.py** provides `probe_editor_connection()` (async TCP check), `probe_cli()` (CLI availability), and `get_server_capabilities()` (aggregated report).
 - **utils/o3de.py** handles O3DE engine discovery via `O3DE_ENGINE_PATH` env var or `~/.o3de/o3de_manifest.json`. Supports multiple engines via `O3DE_ENGINE_NAME`. All subprocess calls to the O3DE CLI go through `run_o3de_cli()`. Also provides `find_o3de_engine_version()`, `find_all_engines()`, and `list_available_templates()`.
-- Editor tools use raw TCP sockets to send `pyRunScript` commands. Host/port are configurable via `O3DE_EDITOR_HOST` and `O3DE_EDITOR_PORT` env vars (default: `127.0.0.1:4600`). Two separate timeouts apply: `O3DE_EDITOR_CONNECT_TIMEOUT` bounds the TCP connect (default: 5s) so an unreachable editor fails fast, while `O3DE_EDITOR_TIMEOUT` bounds per-command execution (default: 600s) — the editor runs each script synchronously and does not reply until done, so this is effectively "how long an editor op may take." `run_editor_python` also takes a per-call `timeout`. The scripts use the `azlmbr` namespace available inside the O3DE Editor Python environment.
+- Editor tools talk to the editor over a raw TCP socket, auto-detecting the protocol on connect: the **AiCompanion gem's AgentServer** (length-prefixed JSON, preferred) with automatic fallback to the **legacy RemoteConsole** text `pyRunScript` protocol for setups without the companion gem. Host/port are configurable via `O3DE_EDITOR_HOST` and `O3DE_EDITOR_PORT` env vars (default: `127.0.0.1:4600`). Two separate timeouts apply: `O3DE_EDITOR_CONNECT_TIMEOUT` bounds the TCP connect (default: 5s) so an unreachable editor fails fast, while `O3DE_EDITOR_TIMEOUT` bounds per-command execution (default: 600s) — the editor runs each script synchronously and does not reply until done, so this is effectively "how long an editor op may take." `run_editor_python` also takes a per-call `timeout`. The scripts use the `azlmbr` namespace available inside the O3DE Editor Python environment.
 - **utils/introspection.py** reads the editor's generated `azlmbr` stubs (`<project>/user/python_symbols/azlmbr/<module>.pyi`) to build a gem-agnostic EBus schema for the `get_bus_schema` tool. The project is resolved from the `O3DE_PROJECT_PATH` env var (or the single registered project with a stub dump), so set `O3DE_PROJECT_PATH` to disambiguate when several projects have dumps.
 
 ## Key Conventions
@@ -69,7 +74,8 @@ src/o3de_mcp/
 ## Documentation
 
 - `AGENTS.md` — Agent-specific guide: token efficiency rules, quick reference, decision tree, error handling. Read this first when using the MCP tools as an AI agent.
-- `docs/tool-reference.md` — Compact parameter reference for all tools.
+- `docs/tool-reference.md` — Compact parameter reference for all 63 tools.
+- `docs/architecture.md` — System diagram, editor protocol details, and communication flow.
 - `docs/recipes.md` — Composable game-dev patterns (scene setup, physics, lighting, scripting).
 - `docs/components.md` — O3DE component name catalog with dependency chains. Component names must be exact — use this as the source of truth.
-- `examples/` — Seven progressive walkthroughs: project creation → scene building → physics → scripted game → batch operations → CLI-only workflow → gem development.
+- `examples/` — Eight progressive walkthroughs: project creation → scene building → physics → scripted game → batch operations → CLI-only workflow → gem development → MCP Inspector.
