@@ -25,6 +25,30 @@ Made a mistake?                  → undo / redo
 > Always call `get_capabilities()` first to determine what is available. If the
 > editor is unreachable, focus on project tools.
 
+## Tool Surface
+
+63 tools in five groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
+
+| Group | Count | Editor needed | What it covers |
+|-------|-------|---------------|----------------|
+| Capabilities | 1 | No | `get_capabilities` — call this first |
+| Editor | 37 | Yes | Entities, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, undo/redo, persistent sessions |
+| Introspection | 3 | Partly | EBus schema (static stubs and live), RenderDoc capture |
+| Project | 17 | No | Engines, projects, gems, templates, builds (blocking and background), export |
+| Assets | 5 | No | Asset Processor status, refresh/wait, log tailing |
+
+Less obvious tools worth knowing:
+
+- `begin_session` / `exec_in_session` / `get_session_vars` / `end_session` — keep Python
+  state alive across calls instead of rebuilding it in every `run_editor_python`.
+- `start_build` / `get_build_status` — non-blocking builds; use these over
+  `build_project` when you do not want to hold the call open for minutes.
+- `capture_viewport` — screenshot the editor viewport; `focus_entity` first to frame it.
+- `get_bus_schema` / `get_bus_schema_live` — discover EBus APIs instead of guessing them.
+- `tail_log` / `get_log_errors` — read editor and Asset Processor logs when something
+  fails without a useful message.
+- `assign_asset` — set an asset-typed component property by path.
+
 ## Token Efficiency Rules
 
 ### 1. Batch over individual calls
@@ -135,10 +159,15 @@ When the editor is not available, you can still manage projects and gems:
 |---------|---------|-------------|
 | `O3DE_ENGINE_PATH` | Auto-detect | Engine install path |
 | `O3DE_ENGINE_NAME` | (none) | Select engine by name when multiple registered |
-| `O3DE_EDITOR_HOST` | `127.0.0.1` | Editor remote console host |
-| `O3DE_EDITOR_PORT` | `4600` | Editor remote console port |
+| `O3DE_PROJECT_PATH` | Single registered project | Project used by asset and introspection tools |
+| `O3DE_EDITOR_HOST` | `127.0.0.1` | Editor AgentServer host |
+| `O3DE_EDITOR_PORT` | `4600` | Editor AgentServer port |
 | `O3DE_EDITOR_TIMEOUT` | `600` | Per-command editor execution timeout (seconds) |
 | `O3DE_EDITOR_CONNECT_TIMEOUT` | `5` | Editor TCP connect timeout (seconds) |
+| `O3DE_CAPTURE_WAIT` | `15` | Wait for a viewport capture to reach disk (seconds) |
+| `O3DE_EDITOR_TLS` | `0` | Wrap the editor connection in TLS |
+| `O3DE_EDITOR_TLS_VERIFY` | `0` | Verify the editor certificate and hostname |
+| `O3DE_EDITOR_TLS_CA` | System | CA bundle used when verification is on |
 | `O3DE_CMAKE_GENERATOR` | Auto-detect | CMake generator for builds |
 | `O3DE_CONFIGURE_TIMEOUT` | `600` | CMake configure timeout (seconds) |
 | `O3DE_BUILD_TIMEOUT` | `1800` | CMake build timeout (seconds) |

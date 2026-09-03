@@ -27,9 +27,10 @@ graph LR
     subgraph MCP["o3de-mcp Server"]
         S["server.py<br/>(MCPServer)"]
         CAP["capabilities.py<br/>get_capabilities"]
-        ED["editor.py<br/>Entity, Component,<br/>Level, Game Mode"]
-        INTRO["introspection.py<br/>get_bus_schema"]
+        ED["editor.py<br/>Entity, Component, Transform,<br/>Prefab, Level, Viewport, Session"]
+        INTRO["introspection.py<br/>EBus schema,<br/>RenderDoc"]
         PR["project.py<br/>Project, Gem,<br/>Build, Export"]
+        ASSET["assets.py<br/>Asset Processor,<br/>Logs"]
         UC["utils/capabilities.py<br/>Probe editor & CLI"]
         UO["utils/o3de.py<br/>Engine discovery,<br/>CLI runner"]
     end
@@ -41,11 +42,13 @@ graph LR
 
     subgraph CLI["O3DE CLI"]
         SCRIPT["scripts/o3de.sh<br/>scripts/o3de.bat"]
+        APB["AssetProcessorBatch"]
     end
 
     subgraph FS["Filesystem"]
         MANIFEST["~/.o3de/<br/>o3de_manifest.json"]
         STUBS["&lt;project&gt;/user/<br/>python_symbols/azlmbr"]
+        LOGS["&lt;project&gt;/log/"]
     end
 
     CC -- "MCP protocol<br/>(stdio)" --> S
@@ -53,11 +56,14 @@ graph LR
     S --> ED
     S --> INTRO
     S --> PR
+    S --> ASSET
     CAP --> UC
     ED -- "TCP :4600 (length-prefixed JSON)<br/>connect ≤5s · command ≤600s" --> AS
     AS --> EPB
     INTRO -- "reads .pyi stubs" --> STUBS
     PR --> UO
+    ASSET -- "reads logs" --> LOGS
+    ASSET -- subprocess --> APB
     UO -- subprocess --> SCRIPT
     UO -- reads --> MANIFEST
     UC --> UO
@@ -116,9 +122,10 @@ Always call `get_capabilities()` first to determine which tool categories are av
 |--------|------|
 | `server.py` | MCPServer entry point — registers all tool modules |
 | `tools/capabilities.py` | Exposes `get_capabilities` tool |
-| `tools/editor.py` | 16 editor automation tools — entity CRUD, components, levels, game mode; pooled TCP transport with protocol auto-detection |
-| `tools/introspection.py` | Exposes `get_bus_schema` — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs |
-| `tools/project.py` | 12 project management tools — create, build, export, gem management |
+| `tools/editor.py` | 37 editor automation tools — entity CRUD, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, persistent sessions; pooled TCP transport with protocol auto-detection |
+| `tools/introspection.py` | 3 tools — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs, live EBus query, and RenderDoc frame capture |
+| `tools/project.py` | 17 project management tools — engines, projects, gems, templates, blocking and background builds, export |
+| `tools/assets.py` | 5 asset pipeline tools — Asset Processor status, refresh/wait, log tailing and error filtering |
 | `utils/capabilities.py` | Runtime probing logic (TCP connect check, CLI availability) |
 | `utils/introspection.py` | Parses `<project>/user/python_symbols/azlmbr/*.pyi` stubs into a structured EBus schema |
 | `utils/o3de.py` | Engine/manifest discovery, CLI runner, project/gem listing |
