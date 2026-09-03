@@ -7,8 +7,12 @@
 
 import asyncio
 import base64
+import io
 import json
+import sys
 import time
+import types
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -1052,6 +1056,95 @@ class TestInstantiatePrefab:
                     {"prefab_path": "Prefabs/My.prefab", "position": [1, 2]},
                 )
             )
+
+    @staticmethod
+    def _run_generated_script(prefab_path: str, project_root: str) -> tuple[bool, str]:
+        """Execute the generated script against stub azlmbr modules.
+
+        Returns (bus_was_called, printed_output). The guard exists to keep a
+        missing prefab away from ``InstantiatePrefab``, so the property under
+        test is whether the bus is reached, not what the script prints.
+        """
+        captured: dict[str, str] = {}
+
+        async def _record(script: str, timeout: float | None = None) -> str:
+            captured["script"] = script
+            return ""
+
+        from mcp.server import MCPServer
+
+        from o3de_mcp.tools.editor import register_editor_tools
+
+        mcp = MCPServer("test")
+        register_editor_tools(mcp)
+        with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+            mock_pool.send_script = AsyncMock(side_effect=_record)
+            asyncio.run(
+                mcp.call_tool(
+                    "instantiate_prefab",
+                    {"prefab_path": prefab_path, "position": [0, 0, 0]},
+                )
+            )
+
+        called = False
+
+        def _bus(call_type: object, event: str, *args: object) -> object:
+            nonlocal called
+            if event == "InstantiatePrefab":
+                called = True
+            return None
+
+        stub_bus = types.ModuleType("azlmbr.bus")
+        stub_bus.Broadcast = object()
+        stub_entity = types.ModuleType("azlmbr.entity")
+        stub_entity.EntityId = lambda *a: object()
+        stub_math = types.ModuleType("azlmbr.math")
+        stub_math.Vector3 = lambda *a: object()
+        stub_paths = types.ModuleType("azlmbr.paths")
+        stub_paths.projectroot = project_root
+        stub_paths.engroot = project_root
+        stub_prefab = types.ModuleType("azlmbr.prefab")
+        stub_prefab.PrefabPublicRequestBus = _bus
+
+        stub_root = types.ModuleType("azlmbr")
+        stub_root.bus = stub_bus
+        stub_root.entity = stub_entity
+        stub_root.math = stub_math
+        stub_root.paths = stub_paths
+        stub_root.prefab = stub_prefab
+
+        modules = {
+            "azlmbr": stub_root,
+            "azlmbr.bus": stub_bus,
+            "azlmbr.entity": stub_entity,
+            "azlmbr.math": stub_math,
+            "azlmbr.paths": stub_paths,
+            "azlmbr.prefab": stub_prefab,
+        }
+        out = io.StringIO()
+        with patch.dict(sys.modules, modules), redirect_stdout(out):
+            exec(captured["script"], {"__name__": "__main__"})
+        return called, out.getvalue()
+
+    def test_missing_prefab_never_reaches_the_bus(self, tmp_path: Path) -> None:
+        # Regression: InstantiatePrefab segfaults the editor when the template
+        # cannot be loaded (PrefabDomUtils::GetTemplateSourcePaths dereferences
+        # an empty DOM). A C++ crash is not catchable from the script, so the
+        # bus must not be reached at all for a path that does not exist.
+        called, output = self._run_generated_script("Prefabs/NotThere.prefab", str(tmp_path))
+
+        assert called is False
+        assert "not found" in output
+
+    def test_existing_prefab_reaches_the_bus(self, tmp_path: Path) -> None:
+        # The guard must not reject a prefab that is actually present.
+        target = tmp_path / "Prefabs" / "Real.prefab"
+        target.parent.mkdir(parents=True)
+        target.write_text("{}")
+
+        called, _ = self._run_generated_script("Prefabs/Real.prefab", str(tmp_path))
+
+        assert called is True
 
 
 class TestCreatePrefabFromEntity:

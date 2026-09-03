@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guard ran, and that raises `FileExistsError` when the path is a symlink whose
   target does not exist. The guard now runs first, so both broken and intact
   symlinks return the intended `symlink_rejected` error.
+- **`instantiate_prefab` crashed the editor when the prefab did not exist.**
+  `PrefabPublicRequestBus.InstantiatePrefab` segfaults on O3DE 26.10.0 when the
+  template cannot be loaded: `PrefabPublicHandler::InstantiatePrefab` hands an
+  empty DOM to `PrefabDomUtils::GetTemplateSourcePaths`, which dereferences it
+  without a null check. The tool already wrapped the bus call in `try`/`except`,
+  but a C++ segfault is not a Python exception, so the generated script now
+  resolves the path against `azlmbr.paths.projectroot` and `engroot` and
+  reports a normal "not found" failure instead of dispatching. Found by running
+  the live suite against a real editor; every mocked test passed.
 
 ### Testing
 

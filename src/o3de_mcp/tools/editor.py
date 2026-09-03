@@ -2023,9 +2023,12 @@ def register_editor_tools(mcp: MCPServer) -> None:
             parent_id = _validate_entity_id(parent_id)
         params = json.dumps({"prefab_path": prefab_path, "position": pos, "parent_id": parent_id})
         script = textwrap.dedent(f"""\
+            import os
+
             import azlmbr.bus as bus
             import azlmbr.entity as entity
             import azlmbr.math as math
+            import azlmbr.paths as paths
             import azlmbr.prefab as prefab
             import json
 
@@ -2034,29 +2037,43 @@ def register_editor_tools(mcp: MCPServer) -> None:
             _pos = _params['position']
             _parent_id = _params['parent_id']
 
-            if _parent_id:
-                parent = entity.EntityId(_parent_id)
+            # ``InstantiatePrefab`` segfaults the editor when the template cannot be
+            # loaded: PrefabPublicHandler hands an empty DOM to
+            # PrefabDomUtils::GetTemplateSourcePaths, which dereferences it without a
+            # null check (confirmed on 26.10.0). A C++ crash cannot be caught by the
+            # try/except below, so the path is checked before the bus call.
+            _roots = [_r for _r in (getattr(paths, 'projectroot', ''),
+                                    getattr(paths, 'engroot', '')) if _r]
+            _found = any(os.path.isfile(os.path.join(_r, _path)) for _r in _roots)
+
+            if not _found:
+                print('Failed to instantiate prefab: not found: ' + _path +
+                      ' (searched ' + ', '.join(_roots) + '). The call was not made,'
+                      ' because instantiating a missing prefab crashes the editor.')
             else:
-                parent = entity.EntityId()
-
-            pos_vec = math.Vector3(float(_pos[0]), float(_pos[1]), float(_pos[2]))
-
-            try:
-                result = prefab.PrefabPublicRequestBus(
-                    bus.Broadcast, 'InstantiatePrefab',
-                    _path, parent, pos_vec
-                )
-                if hasattr(result, 'IsSuccess'):
-                    if result.IsSuccess():
-                        eid = result.GetValue()
-                        print(f'Instantiated prefab: {{_path}} (entity={{eid}})')
-                    else:
-                        err = result.GetError() if hasattr(result, 'GetError') else 'unknown'
-                        print(f'Failed to instantiate prefab: {{err}}')
+                if _parent_id:
+                    parent = entity.EntityId(_parent_id)
                 else:
-                    print(f'Instantiated prefab: {{_path}}')
-            except Exception as e:
-                print(f'Failed to instantiate prefab: {{e}}')
+                    parent = entity.EntityId()
+
+                pos_vec = math.Vector3(float(_pos[0]), float(_pos[1]), float(_pos[2]))
+
+                try:
+                    result = prefab.PrefabPublicRequestBus(
+                        bus.Broadcast, 'InstantiatePrefab',
+                        _path, parent, pos_vec
+                    )
+                    if hasattr(result, 'IsSuccess'):
+                        if result.IsSuccess():
+                            eid = result.GetValue()
+                            print(f'Instantiated prefab: {{_path}} (entity={{eid}})')
+                        else:
+                            err = result.GetError() if hasattr(result, 'GetError') else 'unknown'
+                            print(f'Failed to instantiate prefab: {{err}}')
+                    else:
+                        print(f'Instantiated prefab: {{_path}}')
+                except Exception as e:
+                    print(f'Failed to instantiate prefab: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
