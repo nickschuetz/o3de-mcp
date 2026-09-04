@@ -2023,9 +2023,12 @@ def register_editor_tools(mcp: MCPServer) -> None:
             parent_id = _validate_entity_id(parent_id)
         params = json.dumps({"prefab_path": prefab_path, "position": pos, "parent_id": parent_id})
         script = textwrap.dedent(f"""\
+            import os
+
             import azlmbr.bus as bus
             import azlmbr.entity as entity
             import azlmbr.math as math
+            import azlmbr.paths as paths
             import azlmbr.prefab as prefab
             import json
 
@@ -2034,41 +2037,62 @@ def register_editor_tools(mcp: MCPServer) -> None:
             _pos = _params['position']
             _parent_id = _params['parent_id']
 
-            if _parent_id:
-                parent = entity.EntityId(_parent_id)
+            # ``InstantiatePrefab`` segfaults the editor when the template cannot be
+            # loaded: PrefabPublicHandler hands an empty DOM to
+            # PrefabDomUtils::GetTemplateSourcePaths, which dereferences it without a
+            # null check (confirmed on 26.10.0). A C++ crash cannot be caught by the
+            # try/except below, so the path is checked before the bus call.
+            _roots = [_r for _r in (getattr(paths, 'projectroot', ''),
+                                    getattr(paths, 'engroot', '')) if _r]
+            _found = any(os.path.isfile(os.path.join(_r, _path)) for _r in _roots)
+
+            if not _found:
+                print('Failed to instantiate prefab: not found: ' + _path +
+                      ' (searched ' + ', '.join(_roots) + '). The call was not made,'
+                      ' because instantiating a missing prefab crashes the editor.')
             else:
-                parent = entity.EntityId()
-
-            pos_vec = math.Vector3(float(_pos[0]), float(_pos[1]), float(_pos[2]))
-
-            try:
-                result = prefab.PrefabPublicRequestBus(
-                    bus.Broadcast, 'InstantiatePrefab',
-                    _path, parent, pos_vec
-                )
-                if hasattr(result, 'IsSuccess'):
-                    if result.IsSuccess():
-                        eid = result.GetValue()
-                        print(f'Instantiated prefab: {{_path}} (entity={{eid}})')
-                    else:
-                        err = result.GetError() if hasattr(result, 'GetError') else 'unknown'
-                        print(f'Failed to instantiate prefab: {{err}}')
+                if _parent_id:
+                    parent = entity.EntityId(_parent_id)
                 else:
-                    print(f'Instantiated prefab: {{_path}}')
-            except Exception as e:
-                print(f'Failed to instantiate prefab: {{e}}')
+                    parent = entity.EntityId()
+
+                pos_vec = math.Vector3(float(_pos[0]), float(_pos[1]), float(_pos[2]))
+
+                try:
+                    result = prefab.PrefabPublicRequestBus(
+                        bus.Broadcast, 'InstantiatePrefab',
+                        _path, parent, pos_vec
+                    )
+                    if hasattr(result, 'IsSuccess'):
+                        if result.IsSuccess():
+                            eid = result.GetValue()
+                            print(f'Instantiated prefab: {{_path}} (entity={{eid}})')
+                        else:
+                            err = result.GetError() if hasattr(result, 'GetError') else 'unknown'
+                            print(f'Failed to instantiate prefab: {{err}}')
+                    else:
+                        print(f'Instantiated prefab: {{_path}}')
+                except Exception as e:
+                    print(f'Failed to instantiate prefab: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
     @mcp.tool()
     async def create_prefab_from_entity(entity_id: str, prefab_path: str) -> str:
-        """Create a prefab file from an existing entity."""
+        """Write a prefab file to disk from an existing entity.
+
+        The path is relative to the project root. The level is not modified;
+        use ``instantiate_prefab`` afterwards to place the saved prefab.
+        """
         entity_id = _validate_entity_id(entity_id)
         prefab_path = _validate_prefab_path(prefab_path)
         params = json.dumps({"entity_id": entity_id, "prefab_path": prefab_path})
         script = textwrap.dedent(f"""\
+            import os
+
             import azlmbr.bus as bus
             import azlmbr.entity as entity
+            import azlmbr.paths as paths
             import azlmbr.prefab as prefab
             import json
 
@@ -2076,19 +2100,38 @@ def register_editor_tools(mcp: MCPServer) -> None:
             eid = _resolve_entity_id(_params['entity_id'])
             _path = _params['prefab_path']
 
+            # Two buses are needed to get a prefab onto disk.
+            # ``PrefabPublicRequestBus.CreatePrefabInMemory`` (used here before)
+            # only builds an in-level container and writes nothing, so this used
+            # to report success while leaving no file behind.
+            # ``PrefabSystemScriptingBus.CreatePrefab`` returns a template id
+            # without touching the level, and ``SaveTemplateToString`` serialises
+            # that template to the .prefab JSON, which is written out below.
             try:
-                result = prefab.PrefabPublicRequestBus(
-                    bus.Broadcast, 'CreatePrefabInMemory',
-                    [eid], _path
+                _tid = prefab.PrefabSystemScriptingBus(
+                    bus.Broadcast, 'CreatePrefab', [eid], _path
                 )
-                if hasattr(result, 'IsSuccess'):
-                    if result.IsSuccess():
-                        print(f'Created prefab: {{_path}} from entity {{eid}}')
-                    else:
-                        err = result.GetError() if hasattr(result, 'GetError') else 'unknown'
-                        print(f'Failed to create prefab: {{err}}')
+                if not isinstance(_tid, int) or _tid == 0:
+                    print(f'Failed to create prefab: could not build a template '
+                          f'for entity {{eid}} (got {{_tid!r}})')
                 else:
-                    print(f'Created prefab: {{_path}} from entity {{eid}}')
+                    _out = prefab.PrefabLoaderScriptingBus(
+                        bus.Broadcast, 'SaveTemplateToString', _tid
+                    )
+                    if not hasattr(_out, 'IsSuccess') or not _out.IsSuccess():
+                        print(f'Failed to create prefab: could not serialise '
+                              f'template {{_tid}} for {{_path}}')
+                    else:
+                        _dest = os.path.join(paths.projectroot, _path)
+                        os.makedirs(os.path.dirname(_dest), exist_ok=True)
+                        with open(_dest, 'w') as _f:
+                            _f.write(_out.GetValue())
+                        # Report only what is actually on disk.
+                        if os.path.isfile(_dest):
+                            print(f'Created prefab: {{_path}} from entity {{eid}}')
+                        else:
+                            print(f'Failed to create prefab: nothing written to '
+                                  f'{{_dest}}')
             except Exception as e:
                 print(f'Failed to create prefab: {{e}}')
         """)
@@ -2096,7 +2139,16 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def save_prefab(entity_id: str) -> str:
-        """Save a prefab instance (propagate entity changes to the prefab file)."""
+        """Report where a prefab instance came from.
+
+        Propagating live entity edits back to a .prefab file is not reachable
+        from the editor's Python API: ``PrefabPublicRequestBus`` reflects no
+        save event, and the only serialiser, ``SaveTemplateToString``, is keyed
+        by template id with nothing exposed to map an entity to one. This
+        returns the owning prefab path and says so, rather than reporting a
+        success that never happened. To get a prefab onto disk, use
+        ``create_prefab_from_entity``.
+        """
         entity_id = _validate_entity_id(entity_id)
         params = json.dumps({"entity_id": entity_id})
         script = textwrap.dedent(f"""\
@@ -2108,13 +2160,27 @@ def register_editor_tools(mcp: MCPServer) -> None:
             _params = json.loads({params!r})
             eid = _resolve_entity_id(_params['entity_id'])
 
+            # This used to call 'SavePrefabToFile', which does not exist on this
+            # bus in any O3DE version: the call returned None and the tool
+            # printed success regardless, so it was a silent no-op.
             try:
-                prefab.PrefabPublicRequestBus(
-                    bus.Broadcast, 'SavePrefabToFile', eid
+                _owner = prefab.PrefabPublicRequestBus(
+                    bus.Broadcast, 'GetOwningInstancePrefabPath', eid
                 )
-                print(f'Saved prefab instance: {{eid}}')
             except Exception as e:
-                print(f'Failed to save prefab: {{e}}')
+                _owner = f'<unavailable: {{e}}>'
+
+            print(json.dumps({{
+                'status': 'unsupported',
+                'code': 'prefab_save_unavailable',
+                'entity_id': str(eid),
+                'owning_prefab': str(_owner),
+                'message': (
+                    'Saving entity edits back to a prefab file is not exposed to '
+                    'the editor Python API. Use create_prefab_from_entity to '
+                    'write a new prefab file, or edit the .prefab JSON directly.'
+                ),
+            }}))
         """)
         return await _async_run_editor_script(script)
 

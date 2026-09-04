@@ -7,8 +7,12 @@
 
 import asyncio
 import base64
+import io
 import json
+import sys
 import time
+import types
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -1015,6 +1019,142 @@ class TestCaptureViewport:
 # --- Phase 5: Prefab tool tests ---
 
 
+# The events each prefab bus actually reflects to Python on O3DE 26.10.0, taken
+# from the editor's own generated stubs (<project>/user/python_symbols/azlmbr/
+# prefab.pyi). The stub bus raises on anything else, so a tool that calls an
+# event the engine does not expose fails the test instead of silently getting
+# None back. `save_prefab` shipped calling 'SavePrefabToFile' -- an event that
+# exists in no O3DE version -- and every mocked test passed for months, because
+# each one fed its own expected string in as the canned output.
+_REFLECTED_PREFAB_EVENTS = {
+    "PrefabPublicRequestBus": {
+        "CreateInMemorySpawnableAsset",
+        "CreatePrefabInMemory",
+        "DeleteEntitiesAndAllDescendantsInInstance",
+        "DetachPrefab",
+        "DetachPrefabAndRemoveContainerEntity",
+        "DuplicateEntitiesInInstance",
+        "GetInMemorySpawnableAssetId",
+        "GetOwningInstancePrefabPath",
+        "HasInMemorySpawnableAsset",
+        "InstantiatePrefab",
+        "RemoveAllInMemorySpawnableAssets",
+        "RemoveInMemorySpawnableAsset",
+    },
+    "PrefabSystemScriptingBus": {"CreatePrefab"},
+    "PrefabLoaderScriptingBus": {"SaveTemplateToString"},
+}
+
+
+class _StubOutcome:
+    """Stands in for an AZ::Outcome returned across the behavior context."""
+
+    def __init__(self, value: object, success: bool = True) -> None:
+        self._value = value
+        self._success = success
+
+    def IsSuccess(self) -> bool:  # noqa: N802 - mirrors the C++ API
+        return self._success
+
+    def GetValue(self) -> object:  # noqa: N802
+        return self._value
+
+    def GetError(self) -> str:  # noqa: N802
+        return "stub error"
+
+
+def _run_prefab_script(
+    tool_name: str,
+    arguments: dict,
+    project_root: str,
+    template_json: str = '{"ContainerEntity": {}}',
+) -> tuple[list[tuple[str, str]], str]:
+    """Run a prefab tool's generated script against stub azlmbr modules.
+
+    Returns (calls, printed_output) where calls is [(bus_name, event_name)] in
+    order. Any event outside `_REFLECTED_PREFAB_EVENTS` raises, so calling an
+    event the engine does not reflect is a test failure rather than a no-op.
+    """
+    captured: dict[str, str] = {}
+
+    async def _record(script: str, timeout: float | None = None) -> str:
+        captured["script"] = script
+        return ""
+
+    from mcp.server import MCPServer
+
+    from o3de_mcp.tools.editor import register_editor_tools
+
+    mcp = MCPServer("test")
+    register_editor_tools(mcp)
+    with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+        mock_pool.send_script = AsyncMock(side_effect=_record)
+        asyncio.run(mcp.call_tool(tool_name, arguments))
+
+    calls: list[tuple[str, str]] = []
+
+    def _make_bus(bus_name: str):
+        allowed = _REFLECTED_PREFAB_EVENTS[bus_name]
+
+        def _bus(call_type: object, event: str, *args: object) -> object:
+            if event not in allowed:
+                raise AssertionError(
+                    f"{bus_name} does not reflect {event!r} on O3DE 26.10.0; "
+                    f"available: {sorted(allowed)}"
+                )
+            calls.append((bus_name, event))
+            if event == "CreatePrefab":
+                return 7
+            if event == "SaveTemplateToString":
+                return _StubOutcome(template_json)
+            if event == "GetOwningInstancePrefabPath":
+                return "Levels/DefaultLevel/DefaultLevel.prefab"
+            if event == "InstantiatePrefab":
+                return _StubOutcome("[123]")
+            return None
+
+        return _bus
+
+    stub_bus = types.ModuleType("azlmbr.bus")
+    stub_bus.Broadcast = object()
+    stub_entity = types.ModuleType("azlmbr.entity")
+    stub_entity.EntityId = lambda *a: object()
+    # The generated scripts carry a shared `_resolve_entity_id` prelude that
+    # looks an id up through the search bus before use.
+    stub_entity.SearchFilter = lambda *a, **k: object()
+    stub_entity.SearchBus = lambda *a, **k: []
+    stub_math = types.ModuleType("azlmbr.math")
+    stub_math.Vector3 = lambda *a: object()
+    stub_paths = types.ModuleType("azlmbr.paths")
+    stub_paths.projectroot = project_root
+    stub_paths.engroot = project_root
+    stub_prefab = types.ModuleType("azlmbr.prefab")
+    stub_prefab.PrefabPublicRequestBus = _make_bus("PrefabPublicRequestBus")
+    stub_prefab.PrefabSystemScriptingBus = _make_bus("PrefabSystemScriptingBus")
+    stub_prefab.PrefabLoaderScriptingBus = _make_bus("PrefabLoaderScriptingBus")
+
+    stub_root = types.ModuleType("azlmbr")
+    stub_root.bus = stub_bus
+    stub_root.entity = stub_entity
+    stub_root.math = stub_math
+    stub_root.paths = stub_paths
+    stub_root.prefab = stub_prefab
+
+    modules = {
+        "azlmbr": stub_root,
+        "azlmbr.bus": stub_bus,
+        "azlmbr.entity": stub_entity,
+        "azlmbr.math": stub_math,
+        "azlmbr.paths": stub_paths,
+        "azlmbr.prefab": stub_prefab,
+    }
+    out = io.StringIO()
+    globs = {"__name__": "__main__", "_resolve_entity_id": lambda v: f"[{v}]"}
+    with patch.dict(sys.modules, modules), redirect_stdout(out):
+        exec(captured["script"], globs)
+    return calls, out.getvalue()
+
+
 class TestInstantiatePrefab:
     def test_instantiates_prefab(self) -> None:
         result = asyncio.run(
@@ -1053,8 +1193,67 @@ class TestInstantiatePrefab:
                 )
             )
 
+    def test_missing_prefab_never_reaches_the_bus(self, tmp_path: Path) -> None:
+        # Regression: InstantiatePrefab segfaults the editor when the template
+        # cannot be loaded (PrefabDomUtils::GetTemplateSourcePaths dereferences
+        # an empty DOM). A C++ crash is not catchable from the script, so the
+        # bus must not be reached at all for a path that does not exist.
+        calls, output = _run_prefab_script(
+            "instantiate_prefab",
+            {"prefab_path": "Prefabs/NotThere.prefab", "position": [0, 0, 0]},
+            str(tmp_path),
+        )
+
+        assert ("PrefabPublicRequestBus", "InstantiatePrefab") not in calls
+        assert "not found" in output
+
+    def test_existing_prefab_reaches_the_bus(self, tmp_path: Path) -> None:
+        # The guard must not reject a prefab that is actually present.
+        target = tmp_path / "Prefabs" / "Real.prefab"
+        target.parent.mkdir(parents=True)
+        target.write_text("{}")
+
+        calls, _ = _run_prefab_script(
+            "instantiate_prefab",
+            {"prefab_path": "Prefabs/Real.prefab", "position": [0, 0, 0]},
+            str(tmp_path),
+        )
+
+        assert ("PrefabPublicRequestBus", "InstantiatePrefab") in calls
+
 
 class TestCreatePrefabFromEntity:
+    def test_writes_the_prefab_to_disk(self, tmp_path: Path) -> None:
+        # Regression: this used to call CreatePrefabInMemory, which builds an
+        # in-level container and writes nothing, then report a created file.
+        calls, output = _run_prefab_script(
+            "create_prefab_from_entity",
+            {"entity_id": "123", "prefab_path": "Prefabs/Made.prefab"},
+            str(tmp_path),
+            template_json='{"ContainerEntity": {"Name": "Made"}}',
+        )
+
+        assert calls == [
+            ("PrefabSystemScriptingBus", "CreatePrefab"),
+            ("PrefabLoaderScriptingBus", "SaveTemplateToString"),
+        ]
+        assert "Created prefab" in output
+
+        written = tmp_path / "Prefabs" / "Made.prefab"
+        assert written.is_file()
+        assert json.loads(written.read_text())["ContainerEntity"]["Name"] == "Made"
+
+    def test_reports_failure_when_the_template_cannot_be_built(self, tmp_path: Path) -> None:
+        with patch.object(_StubOutcome, "IsSuccess", lambda self: False):  # serialisation fails
+            _, output = _run_prefab_script(
+                "create_prefab_from_entity",
+                {"entity_id": "123", "prefab_path": "Prefabs/Made.prefab"},
+                str(tmp_path),
+            )
+
+        assert "Failed to create prefab" in output
+        assert not (tmp_path / "Prefabs" / "Made.prefab").exists()
+
     def test_creates_prefab(self) -> None:
         result = asyncio.run(
             _call_tool(
@@ -1076,15 +1275,20 @@ class TestCreatePrefabFromEntity:
 
 
 class TestSavePrefab:
-    def test_saves_prefab(self) -> None:
-        result = asyncio.run(
-            _call_tool(
-                "save_prefab",
-                {"entity_id": "123"},
-                mock_output="Saved prefab instance: 123",
-            )
-        )
-        assert "Saved" in result
+    def test_reports_that_saving_is_unavailable(self, tmp_path: Path) -> None:
+        # Regression: this tool used to call 'SavePrefabToFile', which no O3DE
+        # version reflects. The bus returned None and the tool printed
+        # "Saved prefab instance: <id>" regardless, so it was a silent no-op.
+        # The stub bus rejects unreflected events, so the old code fails here.
+        calls, output = _run_prefab_script("save_prefab", {"entity_id": "123"}, str(tmp_path))
+
+        assert calls == [("PrefabPublicRequestBus", "GetOwningInstancePrefabPath")]
+
+        parsed = json.loads(output)
+        assert parsed["status"] == "unsupported"
+        assert parsed["code"] == "prefab_save_unavailable"
+        assert "create_prefab_from_entity" in parsed["message"]
+        assert parsed["owning_prefab"] == "Levels/DefaultLevel/DefaultLevel.prefab"
 
     def test_invalid_entity_id_raises(self) -> None:
         with pytest.raises(Exception):
