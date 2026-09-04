@@ -34,8 +34,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolves the path against `azlmbr.paths.projectroot` and `engroot` and
   reports a normal "not found" failure instead of dispatching. Found by running
   the live suite against a real editor; every mocked test passed.
+- **`save_prefab` was a silent no-op.** It called
+  `PrefabPublicRequestBus.SavePrefabToFile`, an event that no O3DE version
+  reflects; the call returned `None` and the tool printed
+  `Saved prefab instance: <id>` regardless. Propagating live entity edits back
+  to a `.prefab` is not reachable from the editor's Python API at all: the bus
+  reflects no save event, and the only serialiser, `SaveTemplateToString`, is
+  keyed by template id with nothing exposed to map an entity to one. The tool
+  now returns a `prefab_save_unavailable` result carrying the owning prefab
+  path and pointing at `create_prefab_from_entity`, instead of reporting a
+  success that never happened.
+- **`create_prefab_from_entity` never wrote a file.** It called
+  `CreatePrefabInMemory`, which builds an in-level container and writes nothing,
+  while its docstring promised a prefab file. It now creates the template with
+  `PrefabSystemScriptingBus.CreatePrefab`, serialises it with
+  `PrefabLoaderScriptingBus.SaveTemplateToString`, writes it to the project root
+  and reports success only if the file is on disk. The level is no longer
+  modified as a side effect. Verified end to end against a live editor: entity
+  to `.prefab` on disk to `instantiate_prefab` loading it back.
 
 ### Testing
+
+- Prefab tool tests now execute the generated editor script against stub
+  `azlmbr` modules whose buses reject any event the engine does not actually
+  reflect (the list is taken from the editor's own generated stubs). The
+  previous tests passed their own expected string in as the canned output, so
+  they confirmed nothing about the editor and let `save_prefab` call a
+  nonexistent bus event for months without failing.
 
 - **Every registered tool is now exercised through MCP dispatch.** The eight
   CLI-backed project tools (`create_project`, `create_gem`, `register_gem`,
