@@ -33,6 +33,15 @@ mypy src/
 
 # Generate SBOM (CycloneDX)
 python scripts/generate-sbom.py
+
+# Live editor suite in an isolated sandbox (required before a release, see docs/releasing.md)
+O3DE_SANDBOX_PROJECT=/path/to/ProjectWithAiCompanion scripts/live-sandbox.sh up
+scripts/live-sandbox.sh test
+scripts/live-sandbox.sh down
+
+# Refresh the reflected azlmbr surface used by tests/test_editor_scripts.py
+# (run after moving to a new engine version; needs a project the editor has opened)
+python scripts/extract-azlmbr-surface.py <project>/user/python_symbols/azlmbr tests/data/azlmbr_surface.json
 ```
 
 ## Architecture
@@ -64,6 +73,7 @@ src/o3de_mcp/
 - All O3DE path discovery is centralized in `utils/o3de.py` — never hardcode engine paths elsewhere.
 - Python 3.10+ is required (uses `X | Y` union types).
 - Ruff is used for both linting and formatting (line length 100). Run `ruff check --fix` and `ruff format` before committing.
+- Every editor tool's generated script is executed by `tests/test_editor_scripts.py` against the reflected `azlmbr` surface in `tests/data/azlmbr_surface.json`. A bus event, function or class that the editor does not reflect fails the test; so does the wrong call type. Check the surface file before calling anything new, and do not trust a mocked test that only echoes its own `mock_output`.
 - All user-supplied strings that flow into editor scripts must be passed via `json.dumps`/`json.loads` round-trip — never interpolate raw user input into Python code strings.
 - Validate inputs at tool boundaries: entity IDs, component types, project/gem names, and filesystem paths all have dedicated validators.
 - All source files must include the O3DE-style SPDX header: `# Copyright (c) Contributors to the Open 3D Engine Project.` / `# For complete copyright and license terms please see the LICENSE at the root of this distribution.` / `#` / `# SPDX-License-Identifier: Apache-2.0 OR MIT`.
@@ -76,6 +86,7 @@ src/o3de_mcp/
 - `AGENTS.md` — Agent-specific guide: token efficiency rules, quick reference, decision tree, error handling. Read this first when using the MCP tools as an AI agent.
 - `docs/tool-reference.md` — Compact parameter reference for all 63 tools.
 - `docs/architecture.md` — System diagram, editor protocol details, and communication flow.
+- `docs/releasing.md` covers the release checklist. The live editor suite (`scripts/live-sandbox.sh up|test|down`) is a required gate before tagging, and CI cannot run it.
 - `docs/recipes.md` — Composable game-dev patterns (scene setup, physics, lighting, scripting).
 - `docs/components.md` — O3DE component name catalog with dependency chains. Component names must be exact — use this as the source of truth.
 - `examples/` — Eight progressive walkthroughs: project creation → scene building → physics → scripted game → batch operations → CLI-only workflow → gem development → MCP Inspector.

@@ -845,14 +845,26 @@ def register_editor_tools(mcp: MCPServer) -> None:
             _name = _params['name']
             _parent_id_str = _params['parent_id']
 
-            if _parent_id_str:
-                parent = _resolve_entity_id(_parent_id_str)
+            # With no level open, CreateNewEntity raises a modal "Entity Creation Error"
+            # dialog on the editor's main thread. Nothing dispatches until a human clicks
+            # OK, so every later request times out. Refuse instead.
+            _level = editor.ToolsApplicationRequestBus(bus.Broadcast, 'GetCurrentLevelEntityId')
+            if _level is None or not _level.IsValid():
+                print(json.dumps({{
+                    'status': 'error',
+                    'code': 'no_level_open',
+                    'message': 'No level is open, so an entity cannot be created. '
+                               'Call load_level or create_level first.',
+                }}))
             else:
-                parent = entity.EntityId()
+                if _parent_id_str:
+                    parent = _resolve_entity_id(_parent_id_str)
+                else:
+                    parent = entity.EntityId()
 
-            new_id = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)
-            editor.EditorEntityAPIBus(bus.Event, 'SetName', new_id, _name)
-            print(f'Created entity {{new_id}}')
+                new_id = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)
+                editor.EditorEntityAPIBus(bus.Event, 'SetName', new_id, _name)
+                print(f'Created entity {{new_id}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -894,10 +906,39 @@ def register_editor_tools(mcp: MCPServer) -> None:
             import json
 
             _params = json.loads({params!r})
-            eid = _resolve_entity_id(_params['entity_id'])
-            clone = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CloneEntity', eid)
-            name = editor.EditorEntityInfoRequestBus(bus.Event, 'GetName', clone)
-            print(json.dumps({{'id': str(clone), 'name': name}}))
+            # DuplicateEntitiesInInstance needs the editor's own EntityId object: an id
+            # rebuilt with EntityId(int(...)) passes IsValid() but GetCulledEntityHierarchy
+            # returns nothing for it, so duplication fails with "empty list of input
+            # entities". Take the id straight from the entity search instead of the shared
+            # resolver, which would rebuild it.
+            _wanted = str(_params['entity_id']).strip('[]')
+            eid = None
+            _all = entity.SearchBus(bus.Broadcast, 'SearchEntities', entity.SearchFilter())
+            for _cand in (_all or []):
+                if str(_cand).strip('[]') == _wanted:
+                    eid = _cand
+                    break
+            if eid is None:
+                print(json.dumps({{'error': f'Entity {{_wanted}} not found'}}))
+            else:
+                # 'CloneEntity' on ToolsApplicationRequestBus is not reflected to Python in
+                # any O3DE version; the call returned None and this tool reported a
+                # duplicate that never happened. Duplication goes through the prefab system.
+                import azlmbr.prefab as prefab
+                outcome = prefab.PrefabPublicRequestBus(
+                    bus.Broadcast, 'DuplicateEntitiesInInstance', [eid]
+                )
+                if not hasattr(outcome, 'IsSuccess') or not outcome.IsSuccess():
+                    err = outcome.GetError() if hasattr(outcome, 'GetError') else 'no outcome'
+                    print(json.dumps({{'error': f'Failed to duplicate {{eid}}: {{err}}'}}))
+                else:
+                    new_ids = list(outcome.GetValue() or [])
+                    if not new_ids:
+                        print(json.dumps({{'error': f'Duplicate of {{eid}} returned nothing'}}))
+                    else:
+                        new_id = new_ids[0]
+                        name = editor.EditorEntityInfoRequestBus(bus.Event, 'GetName', new_id)
+                        print(json.dumps({{'id': str(new_id), 'name': name}}))
         """)
         return await _async_run_editor_script(script)
 
@@ -926,62 +967,31 @@ def register_editor_tools(mcp: MCPServer) -> None:
             gt = entity.EntityType().Game
 
             results = []
-            # Try legacy GetComponentsOfEntity first
-            try:
-                components = editor.EditorComponentAPIBus(
-                    bus.Broadcast, 'GetComponentsOfEntity', eid
+            # Enumerate every component type the editor can put on a game entity, then ask
+            # which of them this entity carries. There is no reflected "list components of
+            # entity" call; the previous 'GetComponentsOfEntity' / 'GetComponentName' pair
+            # never existed, so only a hard-coded list of names was ever checked.
+            names = editor.EditorComponentAPIBus(
+                bus.Broadcast, 'BuildComponentTypeNameListByEntityType', gt
+            ) or []
+            for cn in names:
+                tids = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'FindComponentTypeIdsByEntityType', [cn], gt
                 )
-                if components is not None and len(components) > 0:
-                    for comp in components:
-                        type_name = editor.EditorComponentAPIBus(
-                            bus.Broadcast, 'GetComponentName', comp
-                        )
-                        results.append({{'component_id': str(comp), 'type': type_name}})
-                    print(json.dumps(results))
+                if not tids:
+                    continue
+                tid = tids[0]
+                if '00000000-0000-0000-0000-000000000000' in str(tid):
+                    continue
+                if not editor.EditorComponentAPIBus(bus.Broadcast, 'HasComponentOfType', eid, tid):
+                    continue
+                out = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentsOfType', eid, tid)
+                if hasattr(out, 'IsSuccess') and out.IsSuccess():
+                    for pair in (out.GetValue() or []):
+                        results.append({{'component_id': str(pair), 'type': cn}})
                 else:
-                    raise RuntimeError('empty')
-            except Exception:
-                # O3DE 2510+: probe known component types via HasComponentOfType
-                known = [
-                    'Mesh', 'Material', 'Decal', 'SkinnedMesh',
-                    'Directional Light', 'Point Light', 'Spot Light', 'Area Light',
-                    'HDRi Skybox', 'Global Skylight (IBL)', 'Physical Sky',
-                    'PhysX Primitive Collider', 'PhysX Collider',
-                    'PhysX Dynamic Rigid Body', 'PhysX Rigid Body',
-                    'PhysX Static Rigid Body', 'PhysX Mesh Collider',
-                    'PhysX Shape Collider', 'PhysX Character Controller',
-                    'PhysX Force Region',
-                    'Lua Script', 'Script Canvas', 'Camera',
-                    'Actor', 'Anim Graph', 'Simple Motion',
-                    'Box Shape', 'Sphere Shape', 'Capsule Shape',
-                    'Cylinder Shape', 'Axis Aligned Box Shape', 'Spline',
-                    'Audio Trigger', 'Comment',
-                    'Net Binding', 'Network Transform',
-                ]
-                for cn in known:
-                    tids = editor.EditorComponentAPIBus(
-                        bus.Broadcast, 'FindComponentTypeIdsByEntityType', [cn], gt
-                    )
-                    if not tids:
-                        continue
-                    uid = str(tids[0])
-                    if '00000000-0000-0000-0000-000000000000' in uid:
-                        continue
-                    has = editor.EditorComponentAPIBus(
-                        bus.Broadcast, 'HasComponentOfType', eid, tids[0]
-                    )
-                    if has:
-                        comp_id = ''
-                        try:
-                            out = editor.EditorComponentAPIBus(
-                                bus.Broadcast, 'GetComponentOfType', eid, tids[0]
-                            )
-                            if hasattr(out, 'IsSuccess') and out.IsSuccess():
-                                comp_id = str(out.GetValue())
-                        except Exception:
-                            pass
-                        results.append({{'component_id': comp_id, 'type': cn}})
-                print(json.dumps(results))
+                    results.append({{'component_id': '', 'type': cn}})
+            print(json.dumps(results))
         """)
         return await _async_run_editor_script(script)
 
@@ -1288,27 +1298,19 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 print(f'Component type "{{comp_type}}" not found')
             else:
                 tid = type_ids[0]
-                try:
-                    outcome = editor.EditorComponentAPIBus(
-                        bus.Broadcast, 'RemoveComponentOfType', eid, tid
+                # 'RemoveComponentOfType' is not reflected by any O3DE version. The call
+                # returned None and this tool printed "Removed" without removing anything.
+                found = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, tid)
+                if not hasattr(found, 'IsSuccess') or not found.IsSuccess():
+                    print(f'Component "{{comp_type}}" is not on entity {{eid}}')
+                else:
+                    ok = editor.EditorComponentAPIBus(
+                        bus.Broadcast, 'RemoveComponents', [found.GetValue()]
                     )
-                    if hasattr(outcome, 'IsSuccess'):
-                        if outcome.IsSuccess():
-                            print(f'Removed {{comp_type}} from {{eid}}')
-                        else:
-                            err = outcome.GetError() if hasattr(outcome, 'GetError') else 'unknown'
-                            print(f'Failed to remove {{comp_type}}: {{err}}')
+                    if ok:
+                        print(f'Removed {{comp_type}} from {{eid}}')
                     else:
-                        print(f'Removed {{comp_type}} from {{eid}}')
-                except Exception:
-                    try:
-                        comp = editor.EditorComponentAPIBus(
-                            bus.Event, 'GetComponentOfType', eid, tid
-                        )
-                        editor.EditorComponentAPIBus(bus.Event, 'RemoveComponent', comp)
-                        print(f'Removed {{comp_type}} from {{eid}}')
-                    except Exception as e:
-                        print(f'Failed to remove {{comp_type}}: {{e}}')
+                        print(f'Failed to remove {{comp_type}} from {{eid}}: editor refused')
         """)
         return await _async_run_editor_script(script)
 
@@ -1442,21 +1444,22 @@ def register_editor_tools(mcp: MCPServer) -> None:
             import azlmbr.editor as editor
             import azlmbr.bus as bus
             import azlmbr.entity as entity
-            import azlmbr.components as components
             import json
 
             _params = json.loads({params!r})
             eid = _resolve_entity_id(_params['entity_id'])
             pid = _resolve_entity_id(_params['parent_id'])
 
-            try:
-                result = editor.ToolsApplicationRequestBus(
-                    bus.Broadcast, 'SetEntityParent', eid, pid
-                )
-                print(f'Set parent of {{eid}} to {{pid}} (result={{result}})')
-            except Exception as e:
-                components.TransformBus(bus.Event, 'SetParent', eid, pid)
+            # 'SetEntityParent' on ToolsApplicationRequestBus is not reflected by any O3DE
+            # version; it returned None and this tool reported success without reparenting.
+            # EditorEntityAPIBus.SetParent is the editor-side (undoable) reparent. Verify
+            # rather than trust the void return.
+            editor.EditorEntityAPIBus(bus.Event, 'SetParent', eid, pid)
+            now = editor.EditorEntityInfoRequestBus(bus.Event, 'GetParent', eid)
+            if str(now).strip('[]') == str(pid).strip('[]'):
                 print(f'Set parent of {{eid}} to {{pid}}')
+            else:
+                print(f'Failed to set parent of {{eid}} to {{pid}}: parent is now {{now}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -1799,7 +1802,9 @@ def register_editor_tools(mcp: MCPServer) -> None:
             eid = _resolve_entity_id(_params['entity_id'])
             try:
                 import azlmbr.editor as editor_mod
-                editor_mod.EditorCameraRequestBus(bus.Event, 'SetViewFromEntityPerspective', eid)
+                editor_mod.EditorCameraRequestBus(
+                    bus.Broadcast, 'SetViewFromEntityPerspective', eid
+                )
                 print(f'Focused on entity {{eid}}')
             except Exception as e:
                 print(f'Failed to focus on entity: {{e}}')
