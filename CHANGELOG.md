@@ -154,6 +154,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`skills/o3de-headless-and-editor-automation/`, an installable Agent Skill
+  for Windows and Linux.** `SKILL.md` plus reference notes and three scripts
+  covering AssetProcessor-first launch order (and where the AP GUI actually
+  reports idle: the project's `user/log/AP_GUI.log`, never stdout), level capture
+  with the GameLauncher on the native GPU and ffmpeg (`capture_level.py`: x11grab
+  plus Xvfb on Linux, gdigrab on Windows, waits for the launcher's own level-load
+  marker before grabbing), in-renderer screenshots through Atom's
+  `FrameCaptureRequestBus` from editor Python, editor automation through o3de-mcp
+  and the AiCompanion gem, offline source-GUID computation for prefab and level
+  JSON, and ScriptContext behavior tests. Documents the `InstantiatePrefab`
+  segfault on a missing template, the kill-by-pattern self-match trap on both
+  shells, per-OS crash-dump workflows, and the `mcp` 2.x requirement. The Linux
+  path is run end to end on O3DE 26.10.0; the Windows path is written from the
+  engine layout and awaits a run on Windows.
+- **Native snapshot tools backed by the AiCompanion gem's C++.**
+  `get_scene_snapshot`, `get_entity_tree` and `validate_scene` send the
+  AgentServer's script-less request types instead of editor Python, so they
+  are cheaper than `list_entities` plus per-entity queries and keep working
+  when the gem's secure mode disables `execute_python`. On the legacy
+  RemoteConsole transport they return an `agent_server_required` error rather
+  than a fake result. The connection pool gained `send_request()` for these.
+  Tool count is now 66 (40 editor tools).
 - **20 new tools** across 4 categories:
   - **Editor tools (15 new):**
     - `set_transform`, `get_transform`, `set_parent` — entity transform management
