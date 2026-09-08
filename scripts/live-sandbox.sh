@@ -48,6 +48,23 @@ wait_for_port() {
     return 1
 }
 
+wait_for_ap_idle() {
+    local log=$1 before=$2 tries=${3:-600} now
+    for ((i = 0; i < tries; i++)); do
+        if [[ -f "$log" ]]; then
+            now="$(wc -l <"$log")"
+            (( now < before )) && before=0   # rotated: everything in it is new
+            if tail -n +"$((before + 1))" "$log" | grep -q "Asset Processor is currently idle"; then
+                echo "AssetProcessor idle after ${i}s"
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+    echo "AssetProcessor did not report idle within ${tries}s (see $log); continuing" >&2
+    return 0
+}
+
 case "${1:-}" in
 up)
     echo "Xvfb on $DISPLAY_NUM"
@@ -55,10 +72,16 @@ up)
     echo $! >"$STATE/xvfb.pid"
 
     echo "AssetProcessor for $PROJECT on port $AP_PORT (must be up before the editor)"
+    # AP never prints "idle" on stdout; it appends "Asset Processor is currently idle"
+    # to the project's user/log/AP_GUI.log, which persists across runs (rotating at
+    # 4 MB), so only a line written after this launch counts.
+    ap_gui_log="$PROJECT/user/log/AP_GUI.log"
+    ap_lines_before=0
+    [[ -f "$ap_gui_log" ]] && ap_lines_before="$(wc -l <"$ap_gui_log")"
     DISPLAY="$DISPLAY_NUM" "$BIN/AssetProcessor" --project-path="$PROJECT" \
         --regset="/Amazon/AzCore/Bootstrap/remote_port=$AP_PORT" >"$STATE/ap.log" 2>&1 &
     echo $! >"$STATE/ap.pid"
-    sleep 60
+    wait_for_ap_idle "$ap_gui_log" "$ap_lines_before"
 
     echo "Editor with AgentServer on $PORT"
     DISPLAY="$DISPLAY_NUM" O3DE_EDITOR_PORT="$PORT" "$BIN/Editor" --project-path="$PROJECT" \
