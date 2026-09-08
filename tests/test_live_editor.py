@@ -118,6 +118,76 @@ class TestLiveEntityOps:
             assert isinstance(del_result, str)
 
 
+def _entity_id_from(result: str) -> str | None:
+    try:
+        parsed = json.loads(result)
+        if isinstance(parsed, dict) and "id" in parsed:
+            return str(parsed["id"])
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\[?(\d{6,})\]?", result)
+    return match.group(1) if match else None
+
+
+class TestLiveEntityHierarchyAndComponents:
+    """The five tools that once called unreflected bus events and reported success anyway."""
+
+    @pytest.fixture
+    def two_entities(self, mcp_server: MCPServer):  # noqa: ANN201
+        a = _entity_id_from(_run(_call(mcp_server, "create_entity", name="LiveChild")))
+        b = _entity_id_from(_run(_call(mcp_server, "create_entity", name="LiveParent")))
+        assert a and b, "could not create test entities"
+        created = [a, b]
+        yield a, b, created
+        for eid in created:
+            _run(_call(mcp_server, "delete_entity", entity_id=eid))
+
+    def test_set_parent_actually_reparents(self, mcp_server: MCPServer, two_entities) -> None:  # noqa: ANN001
+        child, parent, _ = two_entities
+        result = _run(_call(mcp_server, "set_parent", entity_id=child, parent_id=parent))
+        assert result.startswith("Set parent of"), result
+
+    def test_add_list_and_remove_component(self, mcp_server: MCPServer, two_entities) -> None:  # noqa: ANN001
+        entity, _, _ = two_entities
+        added = _run(_call(mcp_server, "add_component", entity_id=entity, component_type="Mesh"))
+        assert "error" not in added.lower(), added
+
+        listed = json.loads(_run(_call(mcp_server, "get_entity_components", entity_id=entity)))
+        assert isinstance(listed, list) and listed, listed
+        assert any(c["type"] == "Mesh" for c in listed), listed
+
+        removed = _run(
+            _call(mcp_server, "remove_component", entity_id=entity, component_type="Mesh")
+        )
+        assert removed.startswith("Removed Mesh"), removed
+
+        again = _run(_call(mcp_server, "remove_component", entity_id=entity, component_type="Mesh"))
+        assert "is not on entity" in again, again
+
+        listed = json.loads(_run(_call(mcp_server, "get_entity_components", entity_id=entity)))
+        assert not any(c["type"] == "Mesh" for c in listed), listed
+
+    def test_duplicate_entity_makes_a_second_entity(
+        self, mcp_server: MCPServer, two_entities
+    ) -> None:  # noqa: ANN001
+        entity, _, created = two_entities
+        before = len(json.loads(_run(_call(mcp_server, "list_entities"))))
+        result = json.loads(_run(_call(mcp_server, "duplicate_entity", entity_id=entity)))
+        assert "error" not in result, result
+        new_id = str(result["id"]).strip("[]")
+        created.append(new_id)
+        # The duplicate is a new, valid entity distinct from its source. Its name is copied
+        # during template propagation on a later tick, so it can be empty at return time.
+        assert new_id and new_id != entity.strip("[]"), result
+        after = len(json.loads(_run(_call(mcp_server, "list_entities"))))
+        assert after == before + 1, f"expected one more entity, went {before} -> {after}"
+
+    def test_focus_entity(self, mcp_server: MCPServer, two_entities) -> None:  # noqa: ANN001
+        entity, _, _ = two_entities
+        result = _run(_call(mcp_server, "focus_entity", entity_id=entity))
+        assert result.startswith("Focused on entity"), result
+
+
 class TestLiveTransform:
     def test_set_and_get_transform(self, mcp_server: MCPServer) -> None:
         create_result = _run(_call(mcp_server, "create_entity", name="TransformTest"))

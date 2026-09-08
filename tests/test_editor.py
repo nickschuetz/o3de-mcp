@@ -1043,7 +1043,16 @@ _REFLECTED_PREFAB_EVENTS = {
     },
     "PrefabSystemScriptingBus": {"CreatePrefab"},
     "PrefabLoaderScriptingBus": {"SaveTemplateToString"},
+    "AssetCatalogRequestBus": {"GetAssetIdByPath"},
 }
+
+
+class _StubAssetId:
+    def __init__(self, valid: bool) -> None:
+        self._valid = valid
+
+    def is_valid(self) -> bool:
+        return self._valid
 
 
 class _StubOutcome:
@@ -1068,12 +1077,15 @@ def _run_prefab_script(
     arguments: dict,
     project_root: str,
     template_json: str = '{"ContainerEntity": {}}',
+    catalog_has_spawnable: bool = False,
 ) -> tuple[list[tuple[str, str]], str]:
     """Run a prefab tool's generated script against stub azlmbr modules.
 
     Returns (calls, printed_output) where calls is [(bus_name, event_name)] in
     order. Any event outside `_REFLECTED_PREFAB_EVENTS` raises, so calling an
     event the engine does not reflect is a test failure rather than a no-op.
+    ``catalog_has_spawnable`` makes the stub asset catalog report a valid
+    ``.spawnable`` product, the way it does for a prefab in a gem scan folder.
     """
     captured: dict[str, str] = {}
 
@@ -1111,6 +1123,8 @@ def _run_prefab_script(
                 return "Levels/DefaultLevel/DefaultLevel.prefab"
             if event == "InstantiatePrefab":
                 return _StubOutcome("[123]")
+            if event == "GetAssetIdByPath":
+                return _StubAssetId(catalog_has_spawnable)
             return None
 
         return _bus
@@ -1125,6 +1139,9 @@ def _run_prefab_script(
     stub_entity.SearchBus = lambda *a, **k: []
     stub_math = types.ModuleType("azlmbr.math")
     stub_math.Vector3 = lambda *a: object()
+    stub_math.Uuid = lambda *a: object()
+    stub_asset = types.ModuleType("azlmbr.asset")
+    stub_asset.AssetCatalogRequestBus = _make_bus("AssetCatalogRequestBus")
     stub_paths = types.ModuleType("azlmbr.paths")
     stub_paths.projectroot = project_root
     stub_paths.engroot = project_root
@@ -1139,9 +1156,11 @@ def _run_prefab_script(
     stub_root.math = stub_math
     stub_root.paths = stub_paths
     stub_root.prefab = stub_prefab
+    stub_root.asset = stub_asset
 
     modules = {
         "azlmbr": stub_root,
+        "azlmbr.asset": stub_asset,
         "azlmbr.bus": stub_bus,
         "azlmbr.entity": stub_entity,
         "azlmbr.math": stub_math,
@@ -1220,6 +1239,74 @@ class TestInstantiatePrefab:
         )
 
         assert ("PrefabPublicRequestBus", "InstantiatePrefab") in calls
+
+    def test_gem_prefab_known_to_the_catalog_reaches_the_bus(self, tmp_path: Path) -> None:
+        # A prefab shipped by a gem lives in the gem's Assets folder, outside the
+        # project and engine roots, yet PrefabLoader resolves it through the Asset
+        # Processor. The guard must accept it via the catalog rather than refuse it.
+        calls, output = _run_prefab_script(
+            "instantiate_prefab",
+            {"prefab_path": "Prefabs/Player_TwinStick.prefab", "position": [0, 0, 0]},
+            str(tmp_path),
+            catalog_has_spawnable=True,
+        )
+
+        assert ("AssetCatalogRequestBus", "GetAssetIdByPath") in calls
+        assert ("PrefabPublicRequestBus", "InstantiatePrefab") in calls
+        assert "not found" not in output
+
+    def test_unknown_to_disk_and_catalog_never_reaches_the_bus(self, tmp_path: Path) -> None:
+        calls, output = _run_prefab_script(
+            "instantiate_prefab",
+            {"prefab_path": "Prefabs/NotThere.prefab", "position": [0, 0, 0]},
+            str(tmp_path),
+            catalog_has_spawnable=False,
+        )
+
+        assert ("AssetCatalogRequestBus", "GetAssetIdByPath") in calls
+        assert ("PrefabPublicRequestBus", "InstantiatePrefab") not in calls
+        assert "not found" in output
+
+
+class TestNativeSnapshotTools:
+    """get_scene_snapshot / get_entity_tree / validate_scene use the AgentServer's
+    C++ request types, so no Python script is sent to the editor."""
+
+    @staticmethod
+    async def _call_native(tool_name: str, response: dict) -> tuple[str, list[str]]:
+        from mcp.server import MCPServer
+
+        from o3de_mcp.tools.editor import register_editor_tools
+
+        mcp = MCPServer("test")
+        register_editor_tools(mcp)
+        with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+            mock_pool.send_request = AsyncMock(return_value=response)
+            mock_pool.send_script = AsyncMock(return_value="")
+            content = (await mcp.call_tool(tool_name, {})).content
+            requested = [c.args[0] for c in mock_pool.send_request.call_args_list]
+            assert mock_pool.send_script.await_count == 0, "native tool sent a Python script"
+        return content[0].text, requested
+
+    @pytest.mark.parametrize("tool", ["get_scene_snapshot", "get_entity_tree", "validate_scene"])
+    def test_returns_the_native_output_verbatim(self, tool: str) -> None:
+        payload = '{"entities": [], "entity_count": 0}'
+        text, requested = asyncio.run(
+            self._call_native(tool, {"status": "ok", "output": payload, "duration_ms": 1})
+        )
+        assert text == payload
+        assert requested == [tool]
+
+    def test_legacy_protocol_is_reported_not_faked(self) -> None:
+        text, _ = asyncio.run(
+            self._call_native(
+                "get_scene_snapshot",
+                {"status": "error", "code": "agent_server_required", "error": "no gem"},
+            )
+        )
+        parsed = json.loads(text)
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "agent_server_required"
 
 
 class TestCreatePrefabFromEntity:

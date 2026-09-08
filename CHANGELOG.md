@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`get_capabilities` now detects the AiCompanion gem, not just an open socket.**
+  When the editor is reachable it sends the AgentServer's native
+  `get_api_version` request and reports `editor.ai_companion_gem` plus the
+  gem's `protocol_version`, `gem_version` and `api_version` under
+  `editor.agent_server`. A legacy RemoteConsole that answers the port but has
+  no gem behind it is now reported as connected without the gem, with a hint,
+  instead of looking identical to a full AgentServer.
+
 - **Migrated to the `mcp` 2.x API.** `FastMCP` was renamed to `MCPServer` and
   moved to `mcp.server.mcpserver` in `mcp` 2.0, which broke every import. All
   seven call sites now use `from mcp.server import MCPServer`. The server
@@ -20,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`instantiate_prefab` refused every gem-shipped prefab.** The segfault guard
+  added below only looked for the `.prefab` file under `projectroot` and
+  `engroot`, but `PrefabLoader::GetFullPath` resolves a relative path through
+  the Asset Processor, so prefabs in a gem's own `Assets` scan folder (for
+  example the AiCompanion gem's `Prefabs/Player_TwinStick.prefab`) are valid
+  and were being reported as "not found". The guard now also accepts a path
+  whose `.spawnable` product is in the asset catalog, which exists only when
+  the Asset Processor has seen the source in some scan folder. Covered by
+  stub-bus tests in both directions.
 - **`build_project` crashed instead of reporting a rejected symlink.** The
   build directory was created with `mkdir(exist_ok=True)` before the symlink
   guard ran, and that raises `FileExistsError` when the path is a symlink whose
@@ -44,6 +61,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now returns a `prefab_save_unavailable` result carrying the owning prefab
   path and pointing at `create_prefab_from_entity`, instead of reporting a
   success that never happened.
+- **Five editor tools called bus events that no O3DE version reflects, or the right
+  event the wrong way.** Found by running every tool's generated script against the
+  editor's own stub dump (see Testing). In a real editor an unreflected event returns
+  `None` without raising, so each tool's `try`/`except` never fired and it reported
+  success:
+  - `set_parent` called `ToolsApplicationRequestBus.SetEntityParent` and printed
+    "Set parent" with `result=None`; nothing was reparented. It now calls
+    `EditorEntityAPIBus.SetParent` and reads the parent back before confirming.
+  - `remove_component` called `EditorComponentAPIBus.RemoveComponentOfType` and, since
+    `None` has no `IsSuccess`, took the branch that printed "Removed". It now looks the
+    component up with `GetComponentOfType` and removes it with `RemoveComponents`,
+    reporting the editor's boolean.
+  - `duplicate_entity` called `ToolsApplicationRequestBus.CloneEntity` and reported a
+    duplicate with id `None`. It now uses `PrefabPublicRequestBus.DuplicateEntitiesInInstance`.
+  - `get_entity_components` tried `GetComponentsOfEntity` and `GetComponentName`,
+    neither of which exists, so only a hard-coded list of 36 component names was ever
+    checked. It now enumerates every type from `BuildComponentTypeNameListByEntityType`.
+  - `focus_entity` called `EditorCameraRequestBus.SetViewFromEntityPerspective` with
+    `bus.Event`, which consumed the entity id as the bus address and passed no argument.
+    It is a broadcast.
+- **`duplicate_entity` reported a duplicate that never happened, or crashed the editor.** It called `CloneEntity`, which is not reflected, so it returned a duplicate with id `None`. Rewritten to use `PrefabPublicRequestBus.DuplicateEntitiesInInstance`. That takes the editor's own `EntityId`, not one rebuilt from an int (which passes `IsValid()` but fails the hierarchy lookup), and its outcome must be checked with `IsSuccess()` before `GetValue()`: on a failed outcome `GetValue()` reads uninitialised memory and segfaults the editor. Verified live.
+- **`create_entity` with no level open blocked the editor.** `CreateNewEntity` raises a
+  modal "Entity Creation Error" dialog on the main thread, and until a human clicks OK
+  every AgentServer request times out with "waiting for main thread dispatch". The tool
+  now checks `GetCurrentLevelEntityId` first and returns a `no_level_open` error.
 - **`create_prefab_from_entity` never wrote a file.** It called
   `CreatePrefabInMemory`, which builds an in-level container and writes nothing,
   while its docstring promised a prefab file. It now creates the template with
@@ -55,6 +97,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- New `tests/test_editor_scripts.py` runs the Python that every editor tool sends to
+  the editor against a stub `azlmbr` built from the editor's own reflection dump
+  (`tests/data/azlmbr_surface.json`, extracted from `<project>/user/python_symbols` by
+  `scripts/extract-azlmbr-surface.py`). Unknown buses, events, functions and classes
+  fail the test, as does using `bus.Event` on a broadcast or the reverse. This is what
+  found the five tools above; the mocked tests could not, because they echo their own
+  expected string back.
+- `tests/test_live_editor.py` gained tests for `set_parent`, `get_entity_components`,
+  `add_component`/`remove_component`, `duplicate_entity` and `focus_entity`, none of
+  which the live suite had covered.
 - Prefab tool tests now execute the generated editor script against stub
   `azlmbr` modules whose buses reject any event the engine does not actually
   reflect (the list is taken from the editor's own generated stubs). The
@@ -74,6 +126,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running O3DE Editor.
 
 ### Documentation
+
+- `docs/releasing.md`: the release checklist. The live editor suite is now a required
+  gate before tagging, with `scripts/live-sandbox.sh up|test|down` to run it against an
+  isolated editor (own X display, own AgentServer and AssetProcessor ports) so an editor
+  already open on the machine is never touched.
 
 - **Corrected the editor protocol description.** `CLAUDE.md` described only the
   legacy RemoteConsole `pyRunScript` fallback. The primary protocol is the
@@ -97,6 +154,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`skills/o3de-headless-and-editor-automation/`, an installable Agent Skill
+  for Windows and Linux.** `SKILL.md` plus reference notes and three scripts
+  covering AssetProcessor-first launch order (and where the AP GUI actually
+  reports idle: the project's `user/log/AP_GUI.log`, never stdout), level capture
+  with the GameLauncher on the native GPU and ffmpeg (`capture_level.py`: x11grab
+  plus Xvfb on Linux, gdigrab on Windows, waits for the launcher's own level-load
+  marker before grabbing), in-renderer screenshots through Atom's
+  `FrameCaptureRequestBus` from editor Python, editor automation through o3de-mcp
+  and the AiCompanion gem, offline source-GUID computation for prefab and level
+  JSON, and ScriptContext behavior tests. Documents the `InstantiatePrefab`
+  segfault on a missing template, the kill-by-pattern self-match trap on both
+  shells, per-OS crash-dump workflows, and the `mcp` 2.x requirement. The Linux
+  path is run end to end on O3DE 26.10.0; the Windows path is written from the
+  engine layout and awaits a run on Windows.
+- **Native snapshot tools backed by the AiCompanion gem's C++.**
+  `get_scene_snapshot`, `get_entity_tree` and `validate_scene` send the
+  AgentServer's script-less request types instead of editor Python, so they
+  are cheaper than `list_entities` plus per-entity queries and keep working
+  when the gem's secure mode disables `execute_python`. On the legacy
+  RemoteConsole transport they return an `agent_server_required` error rather
+  than a fake result. The connection pool gained `send_request()` for these.
+  Tool count is now 66 (40 editor tools).
 - **20 new tools** across 4 categories:
   - **Editor tools (15 new):**
     - `set_transform`, `get_transform`, `set_parent` — entity transform management

@@ -8,14 +8,15 @@ See the [architecture documentation](docs/architecture.md) for a detailed system
 
 ## Features
 
-63 tools across five categories. See [`docs/tool-reference.md`](docs/tool-reference.md) for every parameter.
+66 tools across five categories. See [`docs/tool-reference.md`](docs/tool-reference.md) for every parameter.
 
 **Capability Detection** (1 tool):
-- `get_capabilities` — check editor connectivity and CLI availability before using other tools
+- `get_capabilities` — check editor connectivity, whether the AiCompanion gem's AgentServer is answering (with its gem, API and protocol versions), and CLI availability before using other tools
 - Dynamic tool discovery — new tools are automatically reported
 
-**Editor Automation** (37 tools, requires a running O3DE Editor with the AiCompanion + EditorPythonBindings gems):
+**Editor Automation** (40 tools, requires a running O3DE Editor with the AiCompanion + EditorPythonBindings gems):
 - Execute arbitrary Python scripts inside the editor (`azlmbr` API)
+- Scene snapshot, entity tree and scene validation served natively by the AiCompanion gem's C++ (`get_scene_snapshot` / `get_entity_tree` / `validate_scene`), no editor Python involved, available even in the gem's secure mode
 - List, create, delete, and duplicate entities; reparent with `set_parent`
 - Add and remove components, get/set component properties, assign assets by path
 - Get and set transforms
@@ -87,6 +88,30 @@ Add to your MCP config (or use a project-level `.mcp.json`):
   }
 }
 ```
+
+#### Agent skill: headless verification and editor automation
+
+[`skills/o3de-headless-and-editor-automation/`](skills/o3de-headless-and-editor-automation/)
+is an [Agent Skill](https://agentskills.io) (a `SKILL.md` plus reference notes
+and scripts) that teaches an agent the repeatable workflow around this server on
+Windows and Linux: AssetProcessor-first launch order and how to tell when it is
+idle, rendering a level on the real GPU and capturing it with ffmpeg (Xvfb when
+there is no monitor), in-renderer screenshots from editor Python, driving the
+editor through o3de-mcp and the AiCompanion gem, wiring asset GUIDs into prefab
+JSON offline, and proving engine changes with a ScriptContext test. It records
+the traps that cost hours (the prefab segfault on a missing template, killing
+your own shell by command-line pattern, the AP idle line living in `AP_GUI.log`).
+The Linux path has been run end to end; the Windows path is written from the
+engine layout and still needs a run on a Windows machine.
+
+Install it by copying or symlinking the directory into your skills folder, then
+invoke it with `/o3de-headless-and-editor-automation`:
+
+```bash
+ln -s "$(pwd)/skills/o3de-headless-and-editor-automation" ~/.claude/skills/
+```
+
+Other clients that read the Agent Skills layout can point at the same directory.
 
 ### With Claude Desktop
 
@@ -166,9 +191,10 @@ GitHub Actions runs lint, type checking, tests, and SBOM generation on every pus
 |----------|----------|-------------|
 | [AGENTS.md](AGENTS.md) | AI agents | Token-efficient usage guide, decision trees, error handling |
 | [docs/architecture.md](docs/architecture.md) | Developers & agents | System architecture diagram and communication flows |
-| [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 63 tools |
+| [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 66 tools |
 | [docs/recipes.md](docs/recipes.md) | Agents & developers | Composable patterns for scenes, physics, lighting, scripting |
 | [docs/components.md](docs/components.md) | Agents & developers | O3DE component name catalog with dependency chains |
+| [skills/o3de-headless-and-editor-automation/](skills/o3de-headless-and-editor-automation/SKILL.md) | AI agents | Installable skill (Windows and Linux): render capture, editor automation, offline asset GUIDs, ScriptContext proofs, and the traps around each |
 
 ### Examples
 
