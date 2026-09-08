@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. 63 tools across five categories:
+An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. 66 tools across five categories:
 - **Capabilities tools** (`src/o3de_mcp/tools/capabilities.py`, 1 tool) — runtime detection of editor connectivity and CLI availability. Call `get_capabilities()` first to know what's available.
-- **Editor tools** (`src/o3de_mcp/tools/editor.py`, 37 tools) — send Python scripts to a running O3DE Editor over TCP port 4600. Covers entities, components, transforms, prefabs, levels, viewport/camera, console and CVARs, game mode, undo/redo, and persistent scripting sessions. Requires the AiCompanion gem (which bundles EditorPythonBindings) active in the editor. Fast-fails when the editor is unreachable.
+- **Editor tools** (`src/o3de_mcp/tools/editor.py`, 40 tools) — send Python scripts to a running O3DE Editor over TCP port 4600. Covers entities, components, transforms, prefabs, levels, viewport/camera, console and CVARs, game mode, undo/redo, and persistent scripting sessions. Requires the AiCompanion and EditorPythonBindings gems active in the editor. Three of the tools (`get_scene_snapshot`, `get_entity_tree`, `validate_scene`) use the AgentServer's native C++ request types instead of sending Python. Fast-fails when the editor is unreachable.
 - **Introspection tools** (`src/o3de_mcp/tools/introspection.py`, 3 tools) — EBus schema discovery (static stub parsing and live query) plus RenderDoc frame capture.
 - **Project tools** (`src/o3de_mcp/tools/project.py`, 17 tools) — wrap the O3DE CLI (`scripts/o3de.sh` / `o3de.bat`) and CMake for project creation, gem management, engine registration, builds (blocking and background), and export.
 - **Asset tools** (`src/o3de_mcp/tools/assets.py`, 5 tools) — Asset Processor status, asset refresh/wait, and log tailing.
@@ -84,9 +84,10 @@ src/o3de_mcp/
 ## Documentation
 
 - `AGENTS.md` — Agent-specific guide: token efficiency rules, quick reference, decision tree, error handling. Read this first when using the MCP tools as an AI agent.
-- `docs/tool-reference.md` — Compact parameter reference for all 63 tools.
+- `docs/tool-reference.md` — Compact parameter reference for all 66 tools.
 - `docs/architecture.md` — System diagram, editor protocol details, and communication flow.
 - `docs/releasing.md` covers the release checklist. The live editor suite (`scripts/live-sandbox.sh up|test|down`) is a required gate before tagging, and CI cannot run it.
 - `docs/recipes.md` — Composable game-dev patterns (scene setup, physics, lighting, scripting).
 - `docs/components.md` — O3DE component name catalog with dependency chains. Component names must be exact — use this as the source of truth.
+- `skills/o3de-headless-and-editor-automation/` — Installable Agent Skill (SKILL.md, reference notes, `capture_level.py`, `compute_asset_guid.py`, a ScriptContext test template) for render verification and editor automation on Windows and Linux. Symlink it into `~/.claude/skills/` to use it here.
 - `examples/` — Eight progressive walkthroughs: project creation → scene building → physics → scripted game → batch operations → CLI-only workflow → gem development → MCP Inspector.

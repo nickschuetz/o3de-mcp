@@ -15,9 +15,82 @@ from o3de_mcp.utils.capabilities import (
     EditorStatus,
     _discover_tool_categories,
     get_server_capabilities,
+    probe_agent_server_version,
     probe_cli,
     probe_editor_connection,
 )
+
+
+async def _serve_framed(responder):
+    """Start a one-connection framed JSON server; ``responder(req) -> dict``."""
+    import json as _json
+    import struct
+
+    async def handle(reader, writer):
+        try:
+            while True:
+                header = await reader.readexactly(4)
+                body = await reader.readexactly(struct.unpack(">I", header)[0])
+                req = _json.loads(body.decode())
+                resp = _json.dumps({"id": req.get("id", "t"), **responder(req)}).encode()
+                writer.write(struct.pack(">I", len(resp)) + resp)
+                await writer.drain()
+        except Exception:
+            pass
+        finally:
+            writer.close()
+
+    return await asyncio.start_server(handle, "127.0.0.1", 0)
+
+
+class TestProbeAgentServerVersion:
+    def test_reports_gem_versions_from_get_api_version(self) -> None:
+        async def run() -> dict | None:
+            def responder(req: dict) -> dict:
+                if req["type"] == "ping":
+                    return {"status": "ok", "output": "pong"}
+                assert req["type"] == "get_api_version"
+                assert "script" not in req
+                return {
+                    "status": "ok",
+                    "output": '{"protocol_version": 1, "gem_version": "0.3.0", '
+                    '"api_version": "1.0"}',
+                }
+
+            server = await _serve_framed(responder)
+            port = server.sockets[0].getsockname()[1]
+            try:
+                return await probe_agent_server_version("127.0.0.1", port, timeout=2.0)
+            finally:
+                server.close()
+                await server.wait_closed()
+
+        assert asyncio.run(run()) == {
+            "protocol_version": 1,
+            "gem_version": "0.3.0",
+            "api_version": "1.0",
+        }
+
+    def test_none_when_server_rejects_the_request(self) -> None:
+        async def run() -> dict | None:
+            def responder(req: dict) -> dict:
+                if req["type"] == "ping":
+                    return {"status": "ok", "output": "pong"}
+                return {"status": "error", "error": "unknown request type"}
+
+            server = await _serve_framed(responder)
+            port = server.sockets[0].getsockname()[1]
+            try:
+                return await probe_agent_server_version("127.0.0.1", port, timeout=2.0)
+            finally:
+                server.close()
+                await server.wait_closed()
+
+        assert asyncio.run(run()) is None
+
+    def test_none_on_dead_port(self) -> None:
+        result = asyncio.run(probe_agent_server_version("127.0.0.1", 19999, timeout=0.5))
+        assert result is None
 
 
 class TestProbeEditorConnection:
@@ -149,29 +222,49 @@ class TestGetServerCapabilities:
         assert caps["tool_categories"]["editor_tools"]["available"] is False
         assert caps["tool_categories"]["project_tools"]["available"] is True
 
-    def test_full_capabilities(self) -> None:
-        async def run() -> dict:
-            with patch(
+    @staticmethod
+    async def _connected(version: dict | None) -> dict:
+        with (
+            patch(
                 "o3de_mcp.utils.capabilities.probe_editor_connection",
                 new_callable=AsyncMock,
                 return_value=EditorStatus.CONNECTED,
-            ):
-                with patch(
-                    "o3de_mcp.utils.capabilities.probe_cli",
-                    return_value={
-                        "available": True,
-                        "path": "/opt/o3de/scripts/o3de.sh",
-                        "engine_path": "/opt/o3de",
-                        "engine_version": "24.09",
-                    },
-                ):
-                    return await get_server_capabilities()
+            ),
+            patch(
+                "o3de_mcp.utils.capabilities.probe_agent_server_version",
+                new_callable=AsyncMock,
+                return_value=version,
+            ),
+            patch(
+                "o3de_mcp.utils.capabilities.probe_cli",
+                return_value={
+                    "available": True,
+                    "path": "/opt/o3de/scripts/o3de.sh",
+                    "engine_path": "/opt/o3de",
+                    "engine_version": "24.09",
+                },
+            ),
+        ):
+            return await get_server_capabilities()
 
-        caps = asyncio.run(run())
+    def test_full_capabilities(self) -> None:
+        version = {"protocol_version": 1, "gem_version": "0.3.0", "api_version": "1.0"}
+        caps = asyncio.run(self._connected(version))
         assert caps["editor"]["status"] == "connected"
         assert "hint" not in caps["editor"]
+        assert caps["editor"]["ai_companion_gem"] is True
+        assert caps["editor"]["agent_server"] == version
         assert caps["tool_categories"]["editor_tools"]["available"] is True
         assert caps["tool_categories"]["project_tools"]["available"] is True
+
+    def test_connected_without_the_gem_is_flagged(self) -> None:
+        # A legacy RemoteConsole answers the socket but has no AgentServer behind
+        # it; "connected" alone used to be reported as if the gem were present.
+        caps = asyncio.run(self._connected(None))
+        assert caps["editor"]["status"] == "connected"
+        assert caps["editor"]["ai_companion_gem"] is False
+        assert caps["editor"]["agent_server"] is None
+        assert "AiCompanion" in caps["editor"]["hint"]
 
 
 class TestDiscoverToolCategories:

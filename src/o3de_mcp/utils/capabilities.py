@@ -34,6 +34,9 @@ _EDITOR_TOOLS = frozenset(
         "set_component_property",
         "assign_asset",
         "remove_component",
+        "get_scene_snapshot",
+        "get_entity_tree",
+        "validate_scene",
         "set_transform",
         "get_transform",
         "set_parent",
@@ -155,6 +158,42 @@ async def probe_editor_connection(
         await _pool._close()
 
 
+async def probe_agent_server_version(
+    host: str | None = None,
+    port: int | None = None,
+    timeout: float = 2.0,
+) -> dict | None:
+    """Ask the AiCompanion AgentServer for its protocol, gem and API versions.
+
+    Uses the gem's native ``get_api_version`` request, which needs no editor
+    Python. Returns the parsed version dict, or ``None`` when the editor is
+    unreachable or only speaks the legacy RemoteConsole protocol (no gem).
+    """
+    from o3de_mcp.tools.editor import _pool
+
+    host = host or _get_editor_host()
+    port = port or _get_editor_port()
+
+    try:
+        response = await _pool.send_request(
+            "get_api_version", host=host, port=port, timeout=timeout
+        )
+    except (ConnectionRefusedError, ConnectionError, TimeoutError, asyncio.TimeoutError, OSError):
+        return None
+    finally:
+        await _pool._close()
+
+    if response.get("status") != "ok":
+        return None
+    try:
+        parsed = json.loads(str(response.get("output", "")))
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return {key: parsed.get(key) for key in ("protocol_version", "gem_version", "api_version")}
+
+
 def probe_cli() -> dict:
     """Check whether the O3DE CLI is available."""
     cli = find_o3de_cli()
@@ -225,6 +264,19 @@ async def get_server_capabilities(mcp: MCPServer | None = None) -> dict:
         "host": host,
         "port": port,
     }
+    if editor_connected:
+        # Distinguish "a socket answered" from "the AiCompanion gem is there".
+        # Only the gem's AgentServer answers get_api_version; the legacy
+        # RemoteConsole path has no gem behind it.
+        version = await probe_agent_server_version(host, port)
+        editor_info["agent_server"] = version
+        editor_info["ai_companion_gem"] = version is not None
+        if version is None:
+            editor_info["hint"] = (
+                "Connected, but the AiCompanion gem's AgentServer did not answer "
+                "get_api_version. Editor tools will use the legacy RemoteConsole path; "
+                "native snapshot tools and the ai_companion Python API are unavailable."
+            )
     if not editor_connected:
         editor_info["hint"] = (
             "Start the O3DE Editor with the AiCompanion and EditorPythonBindings gems enabled."

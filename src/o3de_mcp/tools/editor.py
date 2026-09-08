@@ -581,6 +581,87 @@ class _EditorConnectionPool:
                 await self._close()
                 return _connection_error_response(exc, host, port, timeout)
 
+    async def send_request(
+        self,
+        request_type: str,
+        host: str | None = None,
+        port: int | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, object]:
+        """Send a script-less framed request and return the decoded response.
+
+        The AiCompanion AgentServer answers ``ping``, ``get_api_version``,
+        ``get_scene_snapshot``, ``get_entity_tree`` and ``validate_scene``
+        natively in C++, without the editor's Python interpreter. The legacy
+        RemoteConsole protocol has no equivalent, so on that transport this
+        returns a structured ``{"status": "error", "code": "agent_server_required"}``
+        dict instead of a response.
+        """
+        host = host or _get_editor_host()
+        port = port or _get_editor_port()
+        timeout = _get_editor_timeout() if timeout is None else timeout
+        connect_timeout = _get_editor_connect_timeout()
+
+        current_loop = asyncio.get_running_loop()
+        if self._lock is None or self._lock_loop is not current_loop:
+            self._lock = asyncio.Lock()
+            self._lock_loop = current_loop
+
+        async with self._lock:
+            if self._last_failure_time is not None:
+                elapsed = time.monotonic() - self._last_failure_time
+                if elapsed < self._FAST_FAIL_WINDOW:
+                    return {
+                        "status": "error",
+                        "code": "editor_unavailable",
+                        "error": f"O3DE Editor is not reachable on {host}:{port}.",
+                    }
+            try:
+                reader, writer = await self._ensure_connected(host, port, connect_timeout)
+            except (
+                ConnectionRefusedError,
+                ConnectionError,
+                TimeoutError,
+                asyncio.TimeoutError,
+                OSError,
+            ) as exc:
+                self._last_failure_time = time.monotonic()
+                await self._close()
+                parsed: dict[str, object] = json.loads(
+                    _connection_error_response(exc, host, port, connect_timeout)
+                )
+                parsed["error"] = parsed.get("message", str(exc))
+                return parsed
+
+            if self._protocol != _PROTO_AGENT_SERVER:
+                return {
+                    "status": "error",
+                    "code": "agent_server_required",
+                    "error": (
+                        f"{request_type} needs the AiCompanion AgentServer; the editor on "
+                        f"{host}:{port} only speaks the legacy RemoteConsole protocol."
+                    ),
+                }
+
+            try:
+                writer.write(_build_framed_request(request_type))
+                await writer.drain()
+                response = await _async_recv_framed(reader, timeout)
+            except (TimeoutError, asyncio.TimeoutError):
+                self._last_failure_time = time.monotonic()
+                await self._close()
+                return {
+                    "status": "error",
+                    "code": "timeout",
+                    "error": f"{request_type} did not complete within {timeout}s.",
+                }
+            except (ConnectionRefusedError, OSError, asyncio.IncompleteReadError) as exc:
+                self._last_failure_time = time.monotonic()
+                await self._close()
+                return {"status": "error", "code": "connection_error", "error": str(exc)}
+            self._last_failure_time = None
+            return response
+
     async def _send_framed_script(
         self,
         reader: asyncio.StreamReader,
@@ -796,6 +877,51 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 the O3DE_EDITOR_TIMEOUT default (600s).
         """
         return await _async_run_editor_script(script, timeout=timeout)
+
+    # --- Native AgentServer requests (no editor Python involved) ---
+
+    async def _native_request(request_type: str) -> str:
+        """Run one of the AgentServer's C++ request types and return its output.
+
+        The AiCompanion gem serves these from its own SceneSnapshotProvider
+        and validator buses, so they work even when ``execute_python`` is
+        disabled by the gem's secure mode.
+        """
+        response = await _pool.send_request(request_type)
+        if response.get("status") != "ok":
+            code = str(response.get("code") or "editor_error")
+            message = str(response.get("error") or response.get("message") or "Unknown error")
+            return _format_error(code, message)
+        return str(response.get("output", ""))
+
+    @mcp.tool()
+    async def get_scene_snapshot() -> str:
+        """Return the full scene state as JSON, served natively by the AiCompanion gem.
+
+        Entities, components, transforms and hierarchy in one call, produced
+        by the gem's C++ SceneSnapshotProvider rather than an editor Python
+        script. Cheaper than ``list_entities`` plus per-entity queries, and it
+        still works when the AgentServer runs in secure mode.
+        """
+        return await _native_request("get_scene_snapshot")
+
+    @mcp.tool()
+    async def get_entity_tree() -> str:
+        """Return the entity hierarchy as a nested JSON tree.
+
+        Served natively by the AiCompanion gem, without editor Python.
+        """
+        return await _native_request("get_entity_tree")
+
+    @mcp.tool()
+    async def validate_scene() -> str:
+        """Run the AiCompanion gem's scene validation and return the report as JSON.
+
+        Flags common problems (missing cameras, entities without transforms,
+        physics bodies without colliders, and similar) without executing any
+        editor Python.
+        """
+        return await _native_request("validate_scene")
 
     # --- Entity management ---
 
@@ -2047,14 +2173,34 @@ def register_editor_tools(mcp: MCPServer) -> None:
             # PrefabDomUtils::GetTemplateSourcePaths, which dereferences it without a
             # null check (confirmed on 26.10.0). A C++ crash cannot be caught by the
             # try/except below, so the path is checked before the bus call.
+            #
+            # PrefabLoader::GetFullPath resolves a relative path through the Asset
+            # Processor, so a prefab in any registered scan folder is valid, not
+            # only one under the project root. Gem prefabs (for example the
+            # AiCompanion gem's Prefabs/Player_TwinStick.prefab) live in the gem's
+            # own Assets folder, which is not reachable from projectroot. Two
+            # checks cover that: the project and engine roots on disk, then the
+            # prefab's .spawnable product in the asset catalog, which exists only
+            # if the Asset Processor has seen the source file in some scan folder.
             _roots = [_r for _r in (getattr(paths, 'projectroot', ''),
                                     getattr(paths, 'engroot', '')) if _r]
             _found = any(os.path.isfile(os.path.join(_r, _path)) for _r in _roots)
+            if not _found:
+                try:
+                    import azlmbr.asset as _asset
+                    _spawnable = os.path.splitext(_path)[0] + '.spawnable'
+                    _aid = _asset.AssetCatalogRequestBus(
+                        bus.Broadcast, 'GetAssetIdByPath', _spawnable, math.Uuid(), False
+                    )
+                    _found = bool(_aid is not None and _aid.is_valid())
+                except Exception:
+                    pass
 
             if not _found:
                 print('Failed to instantiate prefab: not found: ' + _path +
-                      ' (searched ' + ', '.join(_roots) + '). The call was not made,'
-                      ' because instantiating a missing prefab crashes the editor.')
+                      ' (searched ' + ', '.join(_roots) + ' and the asset catalog).'
+                      ' The call was not made, because instantiating a missing'
+                      ' prefab crashes the editor.')
             else:
                 if _parent_id:
                     parent = entity.EntityId(_parent_id)

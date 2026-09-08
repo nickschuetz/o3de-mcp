@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`get_capabilities` now detects the AiCompanion gem, not just an open socket.**
+  When the editor is reachable it sends the AgentServer's native
+  `get_api_version` request and reports `editor.ai_companion_gem` plus the
+  gem's `protocol_version`, `gem_version` and `api_version` under
+  `editor.agent_server`. A legacy RemoteConsole that answers the port but has
+  no gem behind it is now reported as connected without the gem, with a hint,
+  instead of looking identical to a full AgentServer.
+
 - **Migrated to the `mcp` 2.x API.** `FastMCP` was renamed to `MCPServer` and
   moved to `mcp.server.mcpserver` in `mcp` 2.0, which broke every import. All
   seven call sites now use `from mcp.server import MCPServer`. The server
@@ -20,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`instantiate_prefab` refused every gem-shipped prefab.** The segfault guard
+  added below only looked for the `.prefab` file under `projectroot` and
+  `engroot`, but `PrefabLoader::GetFullPath` resolves a relative path through
+  the Asset Processor, so prefabs in a gem's own `Assets` scan folder (for
+  example the AiCompanion gem's `Prefabs/Player_TwinStick.prefab`) are valid
+  and were being reported as "not found". The guard now also accepts a path
+  whose `.spawnable` product is in the asset catalog, which exists only when
+  the Asset Processor has seen the source in some scan folder. Covered by
+  stub-bus tests in both directions.
 - **`build_project` crashed instead of reporting a rejected symlink.** The
   build directory was created with `mkdir(exist_ok=True)` before the symlink
   guard ran, and that raises `FileExistsError` when the path is a symlink whose

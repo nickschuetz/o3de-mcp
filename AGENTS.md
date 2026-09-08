@@ -27,12 +27,12 @@ Made a mistake?                  → undo / redo
 
 ## Tool Surface
 
-63 tools in five groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
+66 tools in five groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
 
 | Group | Count | Editor needed | What it covers |
 |-------|-------|---------------|----------------|
 | Capabilities | 1 | No | `get_capabilities` — call this first |
-| Editor | 37 | Yes | Entities, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, undo/redo, persistent sessions |
+| Editor | 40 | Yes | Entities, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, undo/redo, persistent sessions |
 | Introspection | 3 | Partly | EBus schema (static stubs and live), RenderDoc capture |
 | Project | 17 | No | Engines, projects, gems, templates, builds (blocking and background), export |
 | Assets | 5 | No | Asset Processor status, refresh/wait, log tailing |
@@ -48,6 +48,8 @@ Less obvious tools worth knowing:
 - `tail_log` / `get_log_errors` — read editor and Asset Processor logs when something
   fails without a useful message.
 - `assign_asset` — set an asset-typed component property by path.
+- `get_scene_snapshot` / `get_entity_tree` / `validate_scene` — whole-scene state from the
+  AiCompanion gem's C++ in one call; cheaper than `list_entities` plus per-entity queries.
 
 ## Token Efficiency Rules
 

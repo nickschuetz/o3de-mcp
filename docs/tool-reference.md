@@ -11,7 +11,11 @@ Always available — use these first to determine what other tools can be used.
 ### get_capabilities
 
 Check what O3DE MCP capabilities are currently available. No parameters.
-Returns JSON with `editor`, `cli`, and `tool_categories` sections.
+Returns JSON with `editor`, `cli`, and `tool_categories` sections. When the
+editor is connected, `editor.ai_companion_gem` says whether the AiCompanion
+AgentServer answered `get_api_version`, and `editor.agent_server` carries its
+`protocol_version`, `gem_version` and `api_version` (or `null` on a legacy
+RemoteConsole with no gem behind it).
 
 > **Best practice:** Call this first in every session to avoid wasting tokens
 > on tools that will fail.
@@ -81,6 +85,22 @@ Execute arbitrary Python in the editor. Full `azlmbr` API access.
 |-------|------|----------|-------------|
 | `script` | str | yes | Python code to run in editor |
 | `timeout` | float | no | Per-call execution timeout (seconds). Omit to use `O3DE_EDITOR_TIMEOUT` (default 600). Raise for known-heavy scripts — the editor runs the script synchronously and does not reply until it finishes. |
+
+### get_scene_snapshot
+
+Full scene state (entities, components, transforms, hierarchy) as JSON, served
+natively by the AiCompanion gem's C++ `SceneSnapshotProvider`. No parameters.
+Needs the AgentServer protocol; returns `agent_server_required` on the legacy
+RemoteConsole transport. Works in the gem's secure mode.
+
+### get_entity_tree
+
+Entity hierarchy as a nested JSON tree, served natively by the gem. No parameters.
+
+### validate_scene
+
+The gem's scene validation report as JSON (missing cameras, transform-less
+entities, physics bodies without colliders, and similar). No parameters.
 
 ### list_entities
 

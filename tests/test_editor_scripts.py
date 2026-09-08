@@ -275,6 +275,8 @@ SAMPLE_ARGS: dict[str, dict] = {
     },
     "get_cvar": {"name": "r_fog"},
     "get_entity_components": {"entity_id": "123"},
+    "get_entity_tree": {},
+    "get_scene_snapshot": {},
     "get_level_info": {},
     "get_session_vars": {"session_id": "abcd1234"},
     "get_transform": {"entity_id": "123"},
@@ -300,13 +302,17 @@ SAMPLE_ARGS: dict[str, dict] = {
     "set_transform": {"entity_id": "123", "position": [1, 2, 3], "rotation": [0, 0, 0, 1]},
     "set_viewport_camera": {"position": [0, 0, 0], "rotation": [0, 0, 0]},
     "undo": {},
+    "validate_scene": {},
     "capture_renderdoc_frame": {},
     "get_bus_schema": {"project_path": "."},
     "get_bus_schema_live": {"module": "editor", "bus": "EditorComponentAPIBus"},
 }
 
-# Tools that legitimately never send a script to the editor.
-NO_SCRIPT_TOOLS = frozenset({"list_levels", "get_bus_schema"})
+# Tools that legitimately never send a script to the editor. The three snapshot
+# tools use the AiCompanion AgentServer's native request types instead.
+NO_SCRIPT_TOOLS = frozenset(
+    {"list_levels", "get_bus_schema", "get_scene_snapshot", "get_entity_tree", "validate_scene"}
+)
 
 # Scripts that run in the editor but touch no azlmbr symbol: the session tools keep
 # state on ``__main__``, and the two introspection tools probe with ``hasattr``.
@@ -340,6 +346,7 @@ def generate_script(tool: str, arguments: dict, tmp_path: Path) -> str | None:
         patch.dict(os.environ, env),
     ):
         pool.send_script = AsyncMock(side_effect=_record)
+        pool.send_request = AsyncMock(return_value={"status": "ok", "output": "{}"})
         try:
             asyncio.run(mcp.call_tool(tool, arguments))
         except Exception as exc:  # the tool may reject the empty reply; the script was still sent

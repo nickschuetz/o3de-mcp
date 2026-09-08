@@ -114,9 +114,9 @@ class TestCapabilities:
         cats = parsed["tool_categories"]
 
         total = sum(cat["tool_count"] for cat in cats.values())
-        assert total == 63, f"Expected 63 tools, got {total}"
+        assert total == 66, f"Expected 66 tools, got {total}"
 
-        assert cats["editor_tools"]["tool_count"] == 37
+        assert cats["editor_tools"]["tool_count"] == 40
         assert cats["project_tools"]["tool_count"] == 17
         assert cats["asset_tools"]["tool_count"] == 5
         assert cats["introspection_tools"]["tool_count"] == 3
@@ -685,4 +685,4 @@ class TestAllToolsCallable:
 
     def test_tool_count_matches(self, mcp_server: MCPServer) -> None:
         tools = mcp_server._tool_manager.list_tools()
-        assert len(tools) == 63, f"Expected 63 tools, got {len(tools)}: {[t.name for t in tools]}"
+        assert len(tools) == 66, f"Expected 66 tools, got {len(tools)}: {[t.name for t in tools]}"

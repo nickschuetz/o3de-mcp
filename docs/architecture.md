@@ -6,7 +6,7 @@ This document describes the high-level architecture of **o3de-mcp** — an MCP s
 
 o3de-mcp exposes O3DE capabilities through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling AI assistants (Claude Code, Claude Desktop, or any MCP-compatible client) to automate the O3DE Editor and manage projects, gems, and builds.
 
-Editor communication relies on the [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) — an O3DE Gem that runs an AgentServer inside the editor, accepting Python script execution requests over a length-prefixed JSON protocol. The gem also bundles [**EditorPythonBindings**](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) support, giving scripts access to the full `azlmbr` API.
+Editor communication relies on the [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) — an O3DE Gem that runs an AgentServer inside the editor, accepting Python script execution requests over a length-prefixed JSON protocol. The gem depends on the [**EditorPythonBindings**](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) gem being enabled alongside it, which gives scripts access to the full `azlmbr` API.
 
 ## Diagram
 
@@ -91,6 +91,8 @@ The [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion
 
 Scripts are base64-encoded for safe transport and executed in the editor's embedded Python interpreter.
 
+Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree` and `validate_scene` natively in C++. `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the three snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. On the legacy RemoteConsole transport those requests return an `agent_server_required` error.
+
 #### Connection lifecycle & timeouts
 
 A single persistent TCP connection is pooled across tool calls (`_EditorConnectionPool`). Each `send_script` runs in two bounded phases:
@@ -122,7 +124,7 @@ Always call `get_capabilities()` first to determine which tool categories are av
 |--------|------|
 | `server.py` | MCPServer entry point — registers all tool modules |
 | `tools/capabilities.py` | Exposes `get_capabilities` tool |
-| `tools/editor.py` | 37 editor automation tools — entity CRUD, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, persistent sessions; pooled TCP transport with protocol auto-detection |
+| `tools/editor.py` | 40 editor automation tools — entity CRUD, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, persistent sessions; pooled TCP transport with protocol auto-detection |
 | `tools/introspection.py` | 3 tools — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs, live EBus query, and RenderDoc frame capture |
 | `tools/project.py` | 17 project management tools — engines, projects, gems, templates, blocking and background builds, export |
 | `tools/assets.py` | 5 asset pipeline tools — Asset Processor status, refresh/wait, log tailing and error filtering |
