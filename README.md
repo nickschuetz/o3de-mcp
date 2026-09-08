@@ -1,18 +1,18 @@
 # o3de-mcp
 
-[![License](https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg)](LICENSE.txt)
+[![License](https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg)](https://github.com/nickschuetz/o3de-mcp/blob/main/LICENSE.txt)
 
-Automate [Open 3D Engine (O3DE)](https://o3de.org) with AI — an [MCP](https://modelcontextprotocol.io) server for editor control, project & build management.
+Automate [Open 3D Engine (O3DE)](https://o3de.org) with AI, an [MCP](https://modelcontextprotocol.io) server for editor control, project & build management.
 
-See the [architecture documentation](docs/architecture.md) for a detailed system diagram and communication flow.
+See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/architecture.md) for a detailed system diagram and communication flow.
 
 ## Features
 
-66 tools across five categories. See [`docs/tool-reference.md`](docs/tool-reference.md) for every parameter.
+66 tools across five categories. See [`docs/tool-reference.md`](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/tool-reference.md) for every parameter.
 
 **Capability Detection** (1 tool):
-- `get_capabilities` — check editor connectivity, whether the AiCompanion gem's AgentServer is answering (with its gem, API and protocol versions), and CLI availability before using other tools
-- Dynamic tool discovery — new tools are automatically reported
+- `get_capabilities`: check editor connectivity, whether the AiCompanion gem's AgentServer is answering (with its gem, API and protocol versions), and CLI availability before using other tools
+- Dynamic tool discovery: new tools are automatically reported
 
 **Editor Automation** (40 tools, requires a running O3DE Editor with the AiCompanion + EditorPythonBindings gems):
 - Execute arbitrary Python scripts inside the editor (`azlmbr` API)
@@ -51,18 +51,24 @@ See the [architecture documentation](docs/architecture.md) for a detailed system
 - O3DE installed and registered (engine path in the O3DE manifest or `O3DE_ENGINE_PATH` env var)
   - **Linux/macOS:** `~/.o3de/o3de_manifest.json`
   - **Windows:** `%USERPROFILE%\.o3de\o3de_manifest.json`
-- For editor tools (optional): O3DE Editor running with the [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) and **EditorPythonBindings** gems enabled. The companion gem provides the AgentServer that o3de-mcp connects to for real-time editor automation. Project tools work without the editor — call `get_capabilities()` to check what's available.
+- For editor tools (optional): O3DE Editor running with the [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) and **EditorPythonBindings** gems enabled. The companion gem provides the AgentServer that o3de-mcp connects to for real-time editor automation. Project tools work without the editor; call `get_capabilities()` to check what's available.
 
 ## Installation
 
 ```bash
-pip install -e .
+pip install o3de-mcp
 ```
 
-Or with [uv](https://docs.astral.sh/uv/):
+Or run it without installing, straight from an MCP client config, with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv pip install -e .
+uvx o3de-mcp
+```
+
+To work on o3de-mcp itself, install from a checkout instead:
+
+```bash
+pip install -e .        # or: uv pip install -e .
 ```
 
 ## Usage
@@ -91,7 +97,7 @@ Add to your MCP config (or use a project-level `.mcp.json`):
 
 #### Agent skill: headless verification and editor automation
 
-[`skills/o3de-headless-and-editor-automation/`](skills/o3de-headless-and-editor-automation/)
+[`skills/o3de-headless-and-editor-automation/`](https://github.com/nickschuetz/o3de-mcp/blob/main/skills/o3de-headless-and-editor-automation/)
 is an [Agent Skill](https://agentskills.io) (a `SKILL.md` plus reference notes
 and scripts) that teaches an agent the repeatable workflow around this server on
 Windows and Linux: AssetProcessor-first launch order and how to tell when it is
@@ -172,16 +178,16 @@ python scripts/generate-sbom.py              # JSON + XML
 python scripts/generate-sbom.py --format json # JSON only
 ```
 
-The script creates an isolated virtual environment with only runtime dependencies, so the SBOM accurately reflects what ships — dev/build tooling is excluded.
+The script creates an isolated virtual environment with only runtime dependencies, so the SBOM accurately reflects what ships, without the dev and build tooling.
 
 ### CI
 
-GitHub Actions runs lint, type checking, tests, and SBOM generation on every push and PR to `main`. See [.github/workflows/ci.yml](.github/workflows/ci.yml).
+GitHub Actions runs lint, type checking, tests, and SBOM generation on every push and PR to `main`. See [.github/workflows/ci.yml](https://github.com/nickschuetz/o3de-mcp/blob/main/.github/workflows/ci.yml).
 
 ### Security
 
 - Editor tool inputs (entity IDs, component types) are validated against strict regex patterns before use.
-- User-supplied strings are serialized via `json.dumps` / `json.loads` when passed into editor scripts — never raw string interpolation.
+- User-supplied strings are serialized via `json.dumps` / `json.loads` when passed into editor scripts, never raw string interpolation.
 - Project and gem names are validated against O3DE naming conventions.
 - Filesystem paths are resolved and validated before being passed to subprocesses.
 
@@ -189,25 +195,25 @@ GitHub Actions runs lint, type checking, tests, and SBOM generation on every pus
 
 | Document | Audience | Description |
 |----------|----------|-------------|
-| [AGENTS.md](AGENTS.md) | AI agents | Token-efficient usage guide, decision trees, error handling |
-| [docs/architecture.md](docs/architecture.md) | Developers & agents | System architecture diagram and communication flows |
-| [docs/tool-reference.md](docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 66 tools |
-| [docs/recipes.md](docs/recipes.md) | Agents & developers | Composable patterns for scenes, physics, lighting, scripting |
-| [docs/components.md](docs/components.md) | Agents & developers | O3DE component name catalog with dependency chains |
-| [skills/o3de-headless-and-editor-automation/](skills/o3de-headless-and-editor-automation/SKILL.md) | AI agents | Installable skill (Windows and Linux): render capture, editor automation, offline asset GUIDs, ScriptContext proofs, and the traps around each |
+| [AGENTS.md](https://github.com/nickschuetz/o3de-mcp/blob/main/AGENTS.md) | AI agents | Token-efficient usage guide, decision trees, error handling |
+| [docs/architecture.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/architecture.md) | Developers & agents | System architecture diagram and communication flows |
+| [docs/tool-reference.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 66 tools |
+| [docs/recipes.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/recipes.md) | Agents & developers | Composable patterns for scenes, physics, lighting, scripting |
+| [docs/components.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/components.md) | Agents & developers | O3DE component name catalog with dependency chains |
+| [skills/o3de-headless-and-editor-automation/](https://github.com/nickschuetz/o3de-mcp/blob/main/skills/o3de-headless-and-editor-automation/SKILL.md) | AI agents | Installable skill (Windows and Linux): render capture, editor automation, offline asset GUIDs, ScriptContext proofs, and the traps around each |
 
 ### Examples
 
 Progressive walkthroughs from project creation to a complete game:
 
-1. [New Project](examples/01_new_project.md) — create, configure, and build a project
-2. [Build a Scene](examples/02_build_scene.md) — sky, lights, ground, camera, static objects
-3. [Physics Playground](examples/03_physics_playground.md) — dynamic bodies, triggers, stacking
-4. [Scripted Game](examples/04_scripted_game.md) — complete mini-game with player, obstacles, goals
-5. [Batch Operations](examples/05_batch_operations.md) — efficient bulk entity creation patterns
-6. [CLI-Only Workflow](examples/06_cli_only_workflow.md) — project management without the editor
-7. [Gem Development](examples/07_gem_development.md) — create and integrate custom gems
-8. [MCP Inspector](examples/08_mcp_inspector.md) — interactively test tools via a web UI
+1. [New Project](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/01_new_project.md): create, configure, and build a project
+2. [Build a Scene](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/02_build_scene.md): sky, lights, ground, camera, static objects
+3. [Physics Playground](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/03_physics_playground.md): dynamic bodies, triggers, stacking
+4. [Scripted Game](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/04_scripted_game.md): complete mini-game with player, obstacles, goals
+5. [Batch Operations](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/05_batch_operations.md): efficient bulk entity creation patterns
+6. [CLI-Only Workflow](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/06_cli_only_workflow.md): project management without the editor
+7. [Gem Development](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/07_gem_development.md): create and integrate custom gems
+8. [MCP Inspector](https://github.com/nickschuetz/o3de-mcp/blob/main/examples/08_mcp_inspector.md): interactively test tools via a web UI
 
 ## Configuration
 
@@ -232,7 +238,7 @@ Progressive walkthroughs from project creation to a complete game:
 > **Editor timeouts:** the editor runs each submitted script *synchronously* and does
 > not reply until it finishes, so `O3DE_EDITOR_TIMEOUT` is effectively "how long an
 > editor operation may take." It defaults to 600s because real operations (level loads,
-> game-mode entry, on-demand asset compilation) routinely exceed tens of seconds — a
+> game-mode entry, on-demand asset compilation) routinely exceed tens of seconds, and a
 > too-short value cuts them off while the editor is still working. An unreachable editor
 > is caught in milliseconds by the separate `O3DE_EDITOR_CONNECT_TIMEOUT` and the
 > fast-fail window, so a large command timeout costs nothing on the healthy path.
@@ -251,11 +257,11 @@ The server also reads the O3DE manifest for registered engines, projects, and ge
 
 ## Related Projects
 
-- [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem) — O3DE Gem that provides the AgentServer for editor-side communication. Required for editor automation tools. Enable it alongside [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) in your O3DE project.
-- [**O3DE (Open 3D Engine)**](https://github.com/o3de/o3de) — The open-source game engine.
+- [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion-gem): O3DE Gem that provides the AgentServer for editor-side communication. Required for editor automation tools. Enable it alongside [EditorPythonBindings](https://docs.o3de.org/docs/api/gems/editorpythonbindings/index.html) in your O3DE project.
+- [**O3DE (Open 3D Engine)**](https://github.com/o3de/o3de): the open-source game engine.
 
 ## License
 
-This project is dual-licensed under [Apache 2.0](LICENSE-APACHE2.txt) or [MIT](LICENSE-MIT.txt) (your choice), matching the [O3DE engine license](https://github.com/o3de/o3de/blob/development/LICENSE.txt). Free for commercial and non-commercial use.
+This project is dual-licensed under [Apache 2.0](https://github.com/nickschuetz/o3de-mcp/blob/main/LICENSE-APACHE2.txt) or [MIT](https://github.com/nickschuetz/o3de-mcp/blob/main/LICENSE-MIT.txt) (your choice), matching the [O3DE engine license](https://github.com/o3de/o3de/blob/development/LICENSE.txt). Free for commercial and non-commercial use.
 
 `SPDX-License-Identifier: Apache-2.0 OR MIT`
