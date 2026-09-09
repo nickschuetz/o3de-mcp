@@ -2171,7 +2171,9 @@ def register_editor_tools(mcp: MCPServer) -> None:
             # ``InstantiatePrefab`` segfaults the editor when the template cannot be
             # loaded: PrefabPublicHandler hands an empty DOM to
             # PrefabDomUtils::GetTemplateSourcePaths, which dereferences it without a
-            # null check (confirmed on 26.10.0). A C++ crash cannot be caught by the
+            # null check (confirmed on 26.10.0). Fixed upstream in o3de/o3de 80f4714
+            # (development), so newer engine builds return a failure instead, but the
+            # guard is kept for older builds. A C++ crash cannot be caught by the
             # try/except below, so the path is checked before the bus call.
             #
             # PrefabLoader::GetFullPath resolves a relative path through the Asset
