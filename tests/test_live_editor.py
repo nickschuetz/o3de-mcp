@@ -341,6 +341,42 @@ class TestLiveTransformScale:
             _run(_call(mcp_server, "delete_entity", entity_id=eid))
 
 
+class TestLiveAssignAsset:
+    def test_assigns_a_real_mesh_and_refuses_an_unknown_one(self, mcp_server: MCPServer) -> None:
+        created = json.loads(_run(_call(mcp_server, "create_entity", name="AssignTest")))
+        eid = str(created["entity_id"])
+        try:
+            _run(_call(mcp_server, "add_component", entity_id=eid, component_type="Mesh"))
+            prop = "Controller|Configuration|Model Asset"
+            ok = _run(
+                _call(
+                    mcp_server,
+                    "assign_asset",
+                    entity_id=eid,
+                    component_type="Mesh",
+                    property_path=prop,
+                    asset_path="objects/shaderball/ground_plane_4x4m.fbx.azmodel",
+                )
+            )
+            # Only an assignment that reads back is reported as done.
+            assert ok.startswith("Assigned asset"), ok
+            missing = json.loads(
+                _run(
+                    _call(
+                        mcp_server,
+                        "assign_asset",
+                        entity_id=eid,
+                        component_type="Mesh",
+                        property_path=prop,
+                        asset_path="objects/does_not_exist.fbx.azmodel",
+                    )
+                )
+            )
+            assert missing["status"] == "error" and missing["code"] == "asset_not_found", missing
+        finally:
+            _run(_call(mcp_server, "delete_entity", entity_id=eid))
+
+
 class TestLiveConsole:
     def test_run_console_command(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "run_console_command", command="r_DisplayInfo 0"))

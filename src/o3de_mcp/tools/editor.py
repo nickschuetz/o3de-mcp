@@ -1559,7 +1559,14 @@ def register_editor_tools(mcp: MCPServer) -> None:
     async def assign_asset(
         entity_id: EntityIdArg, component_type: str, property_path: str, asset_path: str
     ) -> str:
-        """Assign an asset to a component property by resolving the asset path."""
+        """Assign an asset to a component property by resolving the asset path.
+
+        ``asset_path`` is the product path in the asset catalog (for example
+        ``objects/thing.fbx.azmodel``). The property is read back after setting,
+        and only an assignment that holds is reported as done; an unknown asset,
+        component or property, or a value that does not stick, is returned as an
+        error.
+        """
         entity_id = _validate_entity_id(entity_id)
         component_type = _validate_component_type(component_type)
         asset_path = asset_path.strip()
@@ -1579,6 +1586,8 @@ def register_editor_tools(mcp: MCPServer) -> None:
             import azlmbr.editor as editor
             import azlmbr.bus as bus
             import azlmbr.entity as entity
+            import azlmbr.asset as asset
+            import azlmbr.math as math
             import json
 
             _params = json.loads({params!r})
@@ -1587,57 +1596,58 @@ def register_editor_tools(mcp: MCPServer) -> None:
             prop_path = _params['property_path']
             asset_path = _params['asset_path']
 
-            # Resolve the asset ID from the project-relative path
-            try:
-                import azlmbr.asset as asset
-                asset_id = asset.AssetCatalogRequestBus(
-                    bus.Broadcast, 'GetAssetIdByPath',
-                    asset_path, azlmbr.math.Uuid(), False
-                )
-            except Exception:
-                try:
-                    asset_id = asset.AssetCatalogRequestBus(
-                        bus.Broadcast, 'GetAssetIdByPath',
-                        asset_path
-                    )
-                except Exception as e:
-                    _why = f'Failed to resolve asset path {{asset_path}}: {{e}}'
-                    asset_id = None
-
-            if asset_id is None:
+            # The catalog answers an invalid AssetId, not None, for an unknown path.
+            asset_id = asset.AssetCatalogRequestBus(
+                bus.Broadcast, 'GetAssetIdByPath', asset_path, math.Uuid(), False
+            )
+            type_ids = editor.EditorComponentAPIBus(
+                bus.Broadcast, 'FindComponentTypeIdsByEntityType',
+                [comp_type], entity.EntityType().Game
+            )
+            _null = '00000000-0000-0000-0000-000000000000'
+            if asset_id is None or not asset_id.is_valid():
                 _o3de_fail(
                     'asset_not_found',
-                    locals().get('_why') or f'Asset not found: {{asset_path}}')
-            else:
-                asset_ref = str(asset_id)
-                type_ids = editor.EditorComponentAPIBus(
-                    bus.Broadcast, 'FindComponentTypeIdsByEntityType',
-                    [comp_type], entity.EntityType().Game
+                    f'No asset at {{asset_path}} in the asset catalog; pass the product '
+                    f'path (for example objects/thing.fbx.azmodel)',
                 )
-                success = False
-                try:
-                    if type_ids:
-                        outcome = editor.EditorComponentAPIBus(
-                            bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
-                        )
-                        if hasattr(outcome, 'IsSuccess') and outcome.IsSuccess():
-                            pair = outcome.GetValue()
-                            result = editor.EditorComponentAPIBus(
-                                bus.Broadcast, 'SetComponentProperty', pair,
-                                prop_path, asset_ref
-                            )
-                            print(f'Assigned asset {{asset_path}} to '
-                                  f'{{prop_path}} (result={{result}})')
-                            success = True
-                except Exception:
-                    pass
-
-                if not success:
-                    result = editor.EditorComponentAPIBus(
-                        bus.Event, 'SetComponentProperty', eid,
-                        prop_path, asset_ref
+            elif not type_ids or _null in str(type_ids[0]):
+                _o3de_fail('component_type_not_found', f'Component type "{{comp_type}}" not found')
+            else:
+                found = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
+                )
+                if not hasattr(found, 'IsSuccess') or not found.IsSuccess():
+                    _o3de_fail(
+                        'component_not_on_entity',
+                        f'Component "{{comp_type}}" is not on entity {{eid}}',
                     )
-                    print(f'Assigned asset {{asset_path}} to {{prop_path}} (result={{result}})')
+                else:
+                    pair = found.GetValue()
+                    result = editor.EditorComponentAPIBus(
+                        bus.Broadcast, 'SetComponentProperty', pair, prop_path, asset_id
+                    )
+                    if not hasattr(result, 'IsSuccess') or not result.IsSuccess():
+                        _why = result.GetError() if hasattr(result, 'GetError') else result
+                        _o3de_fail(
+                            'set_property_failed',
+                            f'Could not set {{prop_path}} on {{comp_type}}: {{_why}}',
+                        )
+                    else:
+                        # Read it back: report only an assignment that actually holds.
+                        back = editor.EditorComponentAPIBus(
+                            bus.Broadcast, 'GetComponentProperty', pair, prop_path
+                        )
+                        got = None
+                        if hasattr(back, 'IsSuccess') and back.IsSuccess():
+                            got = back.GetValue()
+                        if got is None or str(got) != str(asset_id):
+                            _o3de_fail(
+                                'assign_asset_failed',
+                                f'{{prop_path}} reads back {{got}}, not {{asset_id}}',
+                            )
+                        else:
+                            print(f'Assigned asset {{asset_path}} to {{prop_path}}')
         """)
         return await _async_run_editor_script(script)
 
