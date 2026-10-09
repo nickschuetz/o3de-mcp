@@ -1117,6 +1117,79 @@ class TestLiveAnimGraphAuthoring:
             self._tool(mcp_server, "remove_anim_graph", anim_graph_id=graph_id)
 
 
+class TestLiveAssetReadiness:
+    """Per-asset readiness through the gem's native Asset Processor queries.
+    Writes small source files under the project's Assets folder and removes them."""
+
+    @staticmethod
+    def _tool(mcp_server: MCPServer, tool_name: str, **kwargs) -> dict:  # noqa: ANN003
+        return json.loads(_run(_call(mcp_server, tool_name, **kwargs)))
+
+    def _require_gem(self, mcp_server: MCPServer) -> None:
+        conn = self._tool(mcp_server, "get_asset_processor_connection")
+        if conn.get("code") == "unknown_request_type":
+            pytest.skip("gem does not serve the asset readiness types (needs 0.6.0+)")
+        assert conn.get("connected") is True, conn
+
+    def _write(self, project_path: str, name: str, content: str) -> tuple[Path, str]:
+        folder = Path(project_path) / "Assets" / "o3de_mcp_live"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{name}_{os.getpid()}"
+        path.write_text(content)
+        return path, f"Assets/o3de_mcp_live/{path.name}"
+
+    @staticmethod
+    def _cleanup(path: Path) -> None:
+        path.unlink(missing_ok=True)
+        if path.parent.exists() and not any(path.parent.iterdir()):
+            path.parent.rmdir()
+
+    def test_a_good_asset_becomes_ready(self, mcp_server: MCPServer, project_path: str) -> None:
+        self._require_gem(mcp_server)
+        # The anim graph builder copies the file without parsing it, so it builds.
+        path, rel = self._write(project_path, "ready_probe", "o3de-mcp live probe")
+        path = path.rename(path.with_suffix(".animgraph"))
+        rel = rel + ".animgraph"
+        try:
+            waited = self._tool(
+                mcp_server, "wait_for_asset", path=rel, just_written=True, timeout=60
+            )
+            assert waited.get("ready") is True and waited["status"] == "compiled", waited
+            status = self._tool(mcp_server, "get_asset_status", path=rel)
+            assert status["status"] == "compiled", status
+            jobs = self._tool(mcp_server, "get_asset_jobs", source_path=rel)
+            assert jobs["jobs"] and all(j["status"] == "completed" for j in jobs["jobs"]), jobs
+        finally:
+            self._cleanup(path)
+
+    def test_a_broken_asset_reports_its_failure(
+        self, mcp_server: MCPServer, project_path: str
+    ) -> None:
+        self._require_gem(mcp_server)
+        # Not a real FBX: the scene builder fails it within milliseconds.
+        path, rel = self._write(project_path, "broken_probe", "not an fbx")
+        path = path.rename(path.with_suffix(".fbx"))
+        rel = rel + ".fbx"
+        try:
+            waited = self._tool(
+                mcp_server, "wait_for_asset", path=rel, just_written=True, timeout=60
+            )
+            assert waited.get("status") == "error", waited
+            assert waited["code"] == "asset_build_failed", waited
+            failed = waited["jobs"]
+            assert failed and all(j["status"] == "failed" for j in failed), waited
+            assert any(j.get("log") for j in failed), "a failed job should carry its log"
+        finally:
+            self._cleanup(path)
+
+    def test_a_never_seen_path_is_missing(self, mcp_server: MCPServer) -> None:
+        self._require_gem(mcp_server)
+        status = self._tool(
+            mcp_server, "get_asset_status", path="Assets/o3de_mcp_live/never_written.fbx"
+        )
+        assert status["status"] == "missing", status
+
+
 class TestLiveEdgeCases:
     def test_invalid_entity_id_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):

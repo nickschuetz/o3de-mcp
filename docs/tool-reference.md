@@ -908,6 +908,56 @@ Trigger an Asset Processor rescan for a project.
 |-------|------|----------|-------------|
 | `project_path` | str | no | Project path (auto-resolves if omitted) |
 
+### get_asset_status
+
+One asset's build status, asked of the Asset Processor through the editor (AiCompanion
+gem 0.6.0+). Returns `{"path", "status", "connected"}` with `status` one of `unknown`,
+`missing`, `queued`, `compiling`, `compiled`, `failed`, plus `query_path` when the gem
+rewrote a full path to the root-relative form. The query also escalates the asset. A
+source whose build failed has no products and answers `missing`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | str | yes | Source or product path, project-relative or full |
+| `flush_io` | bool | no | Flush the file monitor first; use right after writing the file |
+
+### get_asset_jobs
+
+The Asset Processor jobs for one source file (gem 0.6.0+). Returns `{"source_path",
+"jobs": [{"job_key", "platform", "builder", "status", "error_count", "warning_count",
+"job_run_key", "source_file", "watch_folder", "log"?, "truncated"?}]}`; job `status` is
+`queued`, `in_progress`, `failed`, `completed` or `missing`. A source the Asset Processor
+has not registered answers `engine_error`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `source_path` | str | yes | Source file, project-relative or full |
+| `escalate` | bool | no | Move its queued jobs to the front |
+| `include_logs` | bool | no | Attach each failed job's log (cut at 64 KB) |
+
+### get_asset_processor_connection
+
+Whether the editor is connected to the Asset Processor: `{"connected", "ping_ms"}`
+(gem 0.6.0+). `get_asset_processor_status` checks for the process without the editor.
+No parameters.
+
+### wait_for_asset
+
+Wait until one asset is built, or report why it failed (gem 0.6.0+). Polls
+`get_asset_status`. Returns `{"path", "status": "compiled", "ready": true, "elapsed"}`
+when built. A failed build returns the error `asset_build_failed` with the failed jobs
+and their logs. A failed source answers `missing` just like one not registered yet, so
+after a short grace period a `missing` status is checked against `get_asset_jobs`. On
+timeout the result is `{"ready": false, "status": <last>}`, not an error.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | str | yes | The asset: its source path (best) or a product path |
+| `timeout` | float | no | Seconds to wait (default 120, max 3600) |
+| `just_written` | bool | no | Flush the file monitor on the first query |
+| `source_path` | str | no | Source to check for failed jobs when `path` is a product |
+| `poll_interval` | float | no | Seconds between polls (0.1 to 10, default 1) |
+
 ### tail_log
 
 Read the last N lines of an O3DE log file.
