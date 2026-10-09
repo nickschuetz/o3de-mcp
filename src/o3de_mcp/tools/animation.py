@@ -7,7 +7,7 @@
 
 EMotion FX anim graphs are not usefully reflected to editor Python, so these
 tools call the AiCompanion gem's native C++ request types directly. They need a
-gem that serves them (gem main, or 0.6.0 and later) and the EMotionFX gem
+gem that serves them (gem 0.6.0 or later) and the EMotionFX gem
 enabled in the project. A gem that predates these request types answers with
 the failure envelope and the message ``Unknown request type: ...``, with code
 ``unknown_request_type`` on gem 0.5.0 (gem 0.4.0 and earlier send no code, so it
@@ -243,7 +243,7 @@ def register_animation_tools(mcp: MCPServer) -> None:
         Returns the gem's JSON: ``editor_mode`` and an ``anim_graphs`` array with
         each graph's ``id``, ``file_name``, ownership and dirty flags, node and
         parameter counts, and the actor ``instances`` using it. Needs the
-        AiCompanion gem's native request (gem main or 0.6.0+) and the EMotionFX gem.
+        AiCompanion gem's native request (gem 0.6.0+) and the EMotionFX gem.
         """
         return await _native_request("list_anim_graphs")
 
@@ -259,7 +259,7 @@ def register_animation_tools(mcp: MCPServer) -> None:
         ``transitions`` (with blend time and conditions), ``parameters``,
         ``node_groups`` and the ``root_state_machine_id``. Pass exactly one
         selector. An unknown graph is returned as an error. Needs the AiCompanion
-        gem's native request (gem main or 0.6.0+) and the EMotionFX gem.
+        gem's native request (gem 0.6.0+) and the EMotionFX gem.
 
         Args:
             anim_graph_id: Graph id from ``list_anim_graphs`` (number or digit string).

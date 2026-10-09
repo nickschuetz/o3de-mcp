@@ -56,7 +56,7 @@ See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blo
 - List the EMotion FX anim graphs the engine holds and describe one in full: nodes, ports and connections, transitions with conditions, parameters
 - Author anim graphs: create, load, save and remove graphs; add, edit and remove nodes (state machines, motion nodes, blend trees); set a state machine's entry state; add and remove parameters
 - Wire them: transitions between states with conditions (parameter, time, play time, motion, state, tag, vector), and blend-tree port connections
-- Native requests through the AiCompanion gem (gem main or 0.6.0+, plus the EMotionFX gem); they work in the gem's secure mode
+- Native requests through the AiCompanion gem (gem 0.6.0+, plus the EMotionFX gem); they work in the gem's secure mode
 
 ## Prerequisites
 

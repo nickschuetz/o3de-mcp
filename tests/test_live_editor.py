@@ -865,7 +865,7 @@ def _skip_if_no_anim_graphs(parsed: dict) -> None:
     if isinstance(parsed, dict) and parsed.get("status") == "error":
         message = str(parsed.get("message", ""))
         if parsed.get("code") == "unknown_request_type" or "Unknown request type" in message:
-            pytest.skip("gem does not serve the anim graph reads (needs gem main or 0.6.0+)")
+            pytest.skip("gem does not serve the anim graph reads (needs gem 0.6.0+)")
         if "EMotion FX is not available" in message or parsed.get("code") == "unavailable":
             pytest.skip("the EMotionFX gem is not loaded in this editor")
 

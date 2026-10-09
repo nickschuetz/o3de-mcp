@@ -1786,7 +1786,7 @@ class TestScriptRefusalKeepsTheGemCode:
 
 
 class TestStringEntityIdTolerance:
-    """AiCompanion gem main (API 0.4.0, shipping as 0.6.0) emits every native
+    """AiCompanion gem 0.6.0 (API 0.4.0 and up) emits every native
     64-bit entity id as a decimal string instead of a JSON number, so that
     clients with a 53-bit-float JSON parser cannot corrupt a u64 id. The gem's
     inputs are unchanged (number or string). These tests pin that o3de-mcp

@@ -143,7 +143,7 @@ Always call `get_capabilities()` first to determine which tool categories are av
 | `tools/introspection.py` | 3 tools — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs, live EBus query, and RenderDoc frame capture |
 | `tools/project.py` | 17 project management tools — engines, projects, gems, templates, blocking and background builds, export |
 | `tools/trackview.py` | 8 Track View tools: cinematic sequences (create/list/describe/delete, time range, nodes, play/stop) over editor Python `azlmbr.legacy.trackview` |
-| `tools/animation.py` | 17 EMotion FX tools: anim graph reads (`list_anim_graphs`, `get_anim_graph`) and authoring (graphs, nodes, entry state, parameters, transitions with conditions, blend-tree ports) over the gem's native request types (gem main or 0.6.0+, EMotionFX gem); no Python fallback |
+| `tools/animation.py` | 17 EMotion FX tools: anim graph reads (`list_anim_graphs`, `get_anim_graph`) and authoring (graphs, nodes, entry state, parameters, transitions with conditions, blend-tree ports) over the gem's native request types (gem 0.6.0+, EMotionFX gem); no Python fallback |
 | `tools/assets.py` | 9 asset pipeline tools: Asset Processor status, refresh/wait, log tailing and error filtering without the editor, plus per-asset readiness (`get_asset_status`, `get_asset_jobs`, `get_asset_processor_connection`, `wait_for_asset`) over the gem's native request types |
 | `utils/capabilities.py` | Runtime probing: an editor round trip through the pool, the gem's `get_api_version`, and CLI availability |
 | `utils/errors.py` | The one failure envelope, `{"status": "error", "code", "message"}`, shared by every tool module |
