@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as the envelope; `wait_for_assets` keeps its progress result (`completed`,
   `elapsed`), since a timed-out wait is a result, not a failure.
 
+### Compatibility
+
+- **Entity IDs are tolerated as decimal strings.** AiCompanion gem main (API 0.4.0,
+  shipping as 0.6.0) emits every native 64-bit entity id as a decimal string instead
+  of a JSON number, so a client with a 53-bit-float JSON parser cannot corrupt a u64
+  id. o3de-mcp already carries ids through unchanged and accepts a number or a string
+  on input; tests now pin that a full-precision u64 string round-trips through
+  `create_entity`, `delete_entity`, `get_entity` and `set_transform` natively with no
+  loss and no editor-Python fallback, and a live run against a gem built from
+  main round-tripped a past-2^53 id exactly. AGENTS.md documents treating ids as opaque.
+
 ### Testing
 
 - The azlmbr surface harness now checks that a tool's generated script calls each reflected function with the correct number of arguments, not just that the function exists. The reflection dump records each function's arity; a wrong-arity call now fails the surface test. This is the class of bug `create_level` shipped with (a six-argument engine function called with two) that the name-only check could not catch.

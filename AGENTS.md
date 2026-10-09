@@ -56,6 +56,11 @@ Less obvious tools worth knowing:
   and fall back to editor Python on older gems. The native path answers with the gem's JSON
   (`{"entity_id": ...}`, the entity, `{"deleted": ...}`); the fallback prints a sentence.
 
+**Treat entity IDs as opaque.** In native tool output an id is a JSON number on gem 0.5.0
+and a decimal string on gem main / 0.6.0 or later (the gem switched so a 64-bit id survives
+a 53-bit-float JSON parser). Pass the id straight back as you received it; every tool accepts
+a number or a string. Do not parse an id into a number of your own and do arithmetic on it.
+
 ## Token Efficiency Rules
 
 ### 1. Batch over individual calls

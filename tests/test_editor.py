@@ -1670,6 +1670,70 @@ class TestNativeMutationTools:
         assert "all zeros" in str(excinfo.value.__cause__ or excinfo.value)
 
 
+class TestStringEntityIdTolerance:
+    """AiCompanion gem main (API 0.4.0, shipping as 0.6.0) emits every native
+    64-bit entity id as a decimal string instead of a JSON number, so that
+    clients with a 53-bit-float JSON parser cannot corrupt a u64 id. The gem's
+    inputs are unchanged (number or string). These tests pin that o3de-mcp
+    carries a string id through unchanged and feeds it back natively at full
+    precision, with no fallback to editor Python.
+    """
+
+    # A real u64 entity id, past 2**53 where a double would start rounding.
+    BIG_ID = "1152921504606846978"
+
+    def test_validator_preserves_a_large_u64_id_string(self) -> None:
+        assert _validate_entity_id(self.BIG_ID) == self.BIG_ID
+        assert _validate_entity_id(f"[{self.BIG_ID}]") == f"[{self.BIG_ID}]"
+        assert _validate_entity_id(f"  {self.BIG_ID}  ") == self.BIG_ID
+
+    def test_create_entity_passes_a_string_id_through_verbatim(self) -> None:
+        payload = json.dumps(
+            {"entity_id": self.BIG_ID, "name": "Thing", "position": [0.0, 0.0, 0.0]}
+        )
+        text, _, scripts = asyncio.run(
+            TestNativeMutationTools._call(
+                "create_entity", {"name": "Thing"}, {"status": "ok", "output": payload}
+            )
+        )
+        # Exact string, not reparsed into a (lossy) number.
+        assert json.loads(text)["entity_id"] == self.BIG_ID
+        assert scripts == 0
+
+    def test_delete_entity_round_trips_a_bracketed_string_id(self) -> None:
+        text, calls, scripts = asyncio.run(
+            TestNativeMutationTools._call(
+                "delete_entity",
+                {"entity_id": f"[{self.BIG_ID}]"},
+                {"status": "ok", "output": json.dumps({"deleted": self.BIG_ID})},
+            )
+        )
+        assert scripts == 0
+        assert calls[0].kwargs["params"] == {"entity_id": self.BIG_ID}
+        assert json.loads(text)["deleted"] == self.BIG_ID
+
+    def test_get_entity_sends_a_string_id_natively(self) -> None:
+        _, calls, scripts = asyncio.run(
+            TestNativeMutationTools._call(
+                "get_entity", {"entity_id": self.BIG_ID}, {"status": "ok", "output": "{}"}
+            )
+        )
+        assert scripts == 0
+        assert calls[0].args[0] == "get_entity"
+        assert calls[0].kwargs["params"] == {"entity_id": self.BIG_ID}
+
+    def test_set_transform_sends_a_string_id_natively(self) -> None:
+        _, calls, scripts = asyncio.run(
+            TestNativeMutationTools._call(
+                "set_transform",
+                {"entity_id": self.BIG_ID, "position": [1, 2, 3]},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert scripts == 0
+        assert calls[0].kwargs["params"]["entity_id"] == self.BIG_ID
+
+
 def _quaternion_from_euler_degrees_xyz(degrees: list[float]) -> list[float]:
     """Port of AZ::Quaternion::CreateFromEulerDegreesXYZ, the gem's native inverse."""
     hx, hy, hz = (math.radians(d) * 0.5 for d in degrees)
