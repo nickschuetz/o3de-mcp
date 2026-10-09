@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Anim graph authoring** (9 more animation tools, 11 in all): `create_anim_graph`,
+  `remove_anim_graph`, `load_anim_graph`, `save_anim_graph`, `add_anim_graph_node`,
+  `remove_anim_graph_node`, `set_anim_graph_entry_state`, `add_anim_graph_parameter`
+  and `remove_anim_graph_parameter`, over the gem's native authoring request types
+  (gem main or 0.6.0+). Writes refuse asset- or runtime-owned graphs, so author on a
+  graph from `create_anim_graph` or `load_anim_graph`; each write is one Animation
+  Editor undo step, separate from the editor's main undo, and `save_anim_graph` (which
+  must stay inside the project root) is not undoable. Verified live: build a graph with
+  states, entry state and parameters, save it, reload it, and the gem's refusals.
 - **Animation tools** (`tools/animation.py`, 2 tools): `list_anim_graphs` and
   `get_anim_graph`, EMotion FX anim graph reads over the AiCompanion gem's native
   request types. They need gem main or 0.6.0+ and the EMotionFX gem; an older gem

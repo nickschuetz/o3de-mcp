@@ -725,6 +725,155 @@ class TestLiveAnimGraphs:
             _run(_pool.send_request("remove_anim_graph", params={"anim_graph_id": graph_id}))
 
 
+class TestLiveAnimGraphAuthoring:
+    """EMotion FX anim graph authoring end to end: build a graph, read it back,
+    save it inside the project, reload it, and check the gem's refusals."""
+
+    @staticmethod
+    def _tool(mcp_server: MCPServer, tool_name: str, **kwargs) -> dict:  # noqa: ANN003
+        return json.loads(_run(_call(mcp_server, tool_name, **kwargs)))
+
+    def _create(self, mcp_server: MCPServer) -> int:
+        _skip_if_no_anim_graphs(self._tool(mcp_server, "list_anim_graphs"))
+        created = self._tool(mcp_server, "create_anim_graph")
+        if created.get("status") == "error":
+            _skip_if_no_anim_graphs(created)
+            pytest.skip(f"gem cannot author anim graphs here: {created.get('message')}")
+        return int(created["id"])
+
+    def test_author_save_and_reload(self, mcp_server: MCPServer, project_path: str) -> None:
+        graph_id = self._create(mcp_server)
+        graph_ids = [graph_id]
+        # Inside the project root (the gem refuses other paths) but outside the
+        # Asset Processor's scan folders, so the run leaves no asset churn.
+        save_dir = Path(project_path) / "user" / "o3de_mcp_live"
+        save_path = save_dir / f"authoring_{os.getpid()}.animgraph"
+        try:
+            idle = self._tool(
+                mcp_server,
+                "add_anim_graph_node",
+                anim_graph_id=graph_id,
+                node_type="AnimGraphMotionNode",
+                name="Idle",
+                position=[0, 0],
+            )
+            walk = self._tool(
+                mcp_server,
+                "add_anim_graph_node",
+                anim_graph_id=str(graph_id),
+                node_type="animgraphmotionnode",  # type names are case-insensitive
+                name="Walk",
+                position=[200, 0],
+            )
+            assert idle.get("name") == "Idle" and walk.get("name") == "Walk", (idle, walk)
+            entry = self._tool(
+                mcp_server, "set_anim_graph_entry_state", anim_graph_id=graph_id, node_id=walk["id"]
+            )
+            assert entry["entry_state_id"] == walk["id"], entry
+            speed = self._tool(
+                mcp_server,
+                "add_anim_graph_parameter",
+                anim_graph_id=graph_id,
+                name="Speed",
+                parameter_type="Float",
+                default=0.5,
+                min=0,
+                max=1,
+            )
+            assert speed.get("name") == "Speed", speed
+            grounded = self._tool(
+                mcp_server,
+                "add_anim_graph_parameter",
+                anim_graph_id=graph_id,
+                name="Grounded",
+                parameter_type="Bool",
+                default=True,
+                group="State",
+            )
+            assert grounded.get("name") == "Grounded", grounded
+
+            graph = self._tool(mcp_server, "get_anim_graph", anim_graph_id=graph_id)
+            nodes = {n["name"]: n for n in graph["nodes"]}
+            root = next(n for n in graph["nodes"] if n["id"] == graph["root_state_machine_id"])
+            assert {"Idle", "Walk"} <= set(nodes), graph["nodes"]
+            assert nodes["Idle"]["parent_id"] == root["id"]
+            assert root.get("entry_state_id") == walk["id"], root
+            params = {p["name"]: p for p in graph["parameters"]}
+            assert {"Speed", "Grounded"} <= set(params), graph["parameters"]
+
+            removed = self._tool(
+                mcp_server, "remove_anim_graph_parameter", anim_graph_id=graph_id, name="Speed"
+            )
+            assert removed == {"removed": "Speed"}, removed
+            removed = self._tool(
+                mcp_server, "remove_anim_graph_node", anim_graph_id=graph_id, node_id=idle["id"]
+            )
+            assert removed == {"removed": idle["id"]}, removed
+
+            save_dir.mkdir(parents=True, exist_ok=True)
+            saved = self._tool(
+                mcp_server, "save_anim_graph", anim_graph_id=graph_id, file_name=str(save_path)
+            )
+            assert saved.get("status") != "error", saved
+            assert save_path.is_file(), saved
+
+            # Drop the in-memory graph, then load the file back as a new graph.
+            gone = self._tool(mcp_server, "remove_anim_graph", anim_graph_id=graph_id)
+            assert gone.get("status") != "error", gone
+            graph_ids.remove(graph_id)
+            loaded = self._tool(mcp_server, "load_anim_graph", file_name=str(save_path))
+            assert loaded.get("status") != "error", loaded
+            graph_ids.append(int(loaded["id"]))
+            reloaded = self._tool(mcp_server, "get_anim_graph", anim_graph_id=loaded["id"])
+            names = {n["name"] for n in reloaded["nodes"]}
+            assert "Walk" in names and "Idle" not in names, reloaded["nodes"]
+            assert [p["name"] for p in reloaded["parameters"]] == ["Grounded"], reloaded
+            root = next(
+                n for n in reloaded["nodes"] if n["id"] == reloaded["root_state_machine_id"]
+            )
+            walk_id = next(n["id"] for n in reloaded["nodes"] if n["name"] == "Walk")
+            assert root.get("entry_state_id") == walk_id, root
+        finally:
+            for gid in graph_ids:
+                self._tool(mcp_server, "remove_anim_graph", anim_graph_id=gid)
+            if save_path.exists():
+                save_path.unlink()
+            if save_dir.exists() and not any(save_dir.iterdir()):
+                save_dir.rmdir()
+
+    def test_refusals(self, mcp_server: MCPServer, tmp_path: Path) -> None:
+        graph_id = self._create(mcp_server)
+        try:
+            unknown = self._tool(
+                mcp_server, "add_anim_graph_node", anim_graph_id=graph_id, node_type="NoSuchNode"
+            )
+            assert unknown["status"] == "error", unknown
+            assert unknown["code"] == "validation_failed", unknown
+            assert "known" in unknown["message"], unknown
+
+            root_id = self._tool(mcp_server, "get_anim_graph", anim_graph_id=graph_id)[
+                "root_state_machine_id"
+            ]
+            root = self._tool(
+                mcp_server, "remove_anim_graph_node", anim_graph_id=graph_id, node_id=root_id
+            )
+            assert root["status"] == "error" and root["code"] == "validation_failed", root
+
+            outside = self._tool(
+                mcp_server,
+                "save_anim_graph",
+                anim_graph_id=graph_id,
+                file_name=str(tmp_path / "outside.animgraph"),
+            )
+            assert outside["status"] == "error" and outside["code"] == "validation_failed", outside
+            assert not (tmp_path / "outside.animgraph").exists()
+
+            missing = self._tool(mcp_server, "remove_anim_graph", anim_graph_id=4000000000)
+            assert missing["status"] == "error" and missing["code"] == "not_found", missing
+        finally:
+            self._tool(mcp_server, "remove_anim_graph", anim_graph_id=graph_id)
+
+
 class TestLiveEdgeCases:
     def test_invalid_entity_id_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
