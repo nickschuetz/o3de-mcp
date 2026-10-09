@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`create_entity`, `set_transform` and `delete_entity` try the gem's native
+  request types first.** AiCompanion 0.5.0 serves all three in C++ with its
+  own validation (entity names, the position bound, the scale range, the
+  level's root entity), so the tools now send the native request, return the
+  gem's JSON verbatim (`{"entity_id": ...}`, the updated entity, or
+  `{"deleted": ...}`) and work in secure mode. A refusal from the gem is
+  returned as an error, not retried through Python. Older gems and the legacy
+  transport fall back to the existing editor-Python scripts and their text
+  output, unchanged. `set_transform` keeps its quaternion and `[x, y, z]`
+  scale parameters: the quaternion is converted to the XYZ Euler degrees the
+  gem takes, and a non-uniform scale always uses the Python path.
 - **`get_bus_schema_live` tries the gem's native `get_bus_schema` first.** The
   C++ path reads the live BehaviorContext and includes each event's argument
   names and tooltips, which the Python bindings do not expose, and it works in

@@ -131,6 +131,13 @@ Create a new entity in the current level.
 | `name` | str | yes | Entity name |
 | `parent_id` | str | no | Parent entity ID (omit for root) |
 
+Tries the AiCompanion gem's native `create_entity` request first (gem 0.5.0
+or later, works in secure mode) and returns its JSON verbatim:
+`{"entity_id": 123, "name": "...", "position": [0.0, 0.0, 0.0]}`. The gem
+validates the name and the parent; a refusal comes back as an error and is not
+retried through Python. Older gems and the legacy transport fall back to editor
+Python, which prints `Created entity [<id>]`.
+
 ### delete_entity
 
 Delete an entity from the current level.
@@ -138,6 +145,11 @@ Delete an entity from the current level.
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `entity_id` | str | yes | Entity ID to delete |
+
+Tries the gem's native `delete_entity` request first (gem 0.5.0 or later, works
+in secure mode) and returns `{"deleted": <id>}` verbatim. The gem refuses an
+unknown entity and the level's root entity. Older gems and the legacy transport
+fall back to editor Python, which prints `Deleted entity [<id>]`.
 
 ### duplicate_entity
 
@@ -219,6 +231,15 @@ Set the world transform of an entity. Only provided components are changed.
 | `position` | list[float] | no | [x, y, z] world position |
 | `rotation` | list[float] | no | [x, y, z, w] quaternion rotation (4 elements) |
 | `scale` | list[float] | no | [x, y, z] scale |
+
+Tries the gem's native `set_transform` request first (gem 0.5.0 or later,
+works in secure mode). The quaternion is converted to the XYZ Euler degrees the
+gem takes (the inverse of its own `CreateFromEulerDegreesXYZ`) and a uniform
+scale to its single number. On success it returns the updated entity's JSON
+verbatim, the same shape as `get_entity`. The gem refuses an unknown entity, an
+out-of-bounds position or a scale outside (0, 1000], and that is returned as an
+error. Older gems, the legacy transport and a non-uniform scale use the editor
+Python path, which prints `Transform set for entity [<id>]`.
 
 ### get_transform
 

@@ -106,8 +106,9 @@ class TestLiveEntityOps:
         entity_id = None
         try:
             parsed = json.loads(result)
-            if isinstance(parsed, dict) and "id" in parsed:
-                entity_id = parsed["id"]
+            if isinstance(parsed, dict):
+                # Native create_entity (gem 0.5.0) answers {"entity_id": ...}.
+                entity_id = parsed.get("entity_id", parsed.get("id"))
         except json.JSONDecodeError:
             match = re.search(r"EntityId\((\d+)\)", result)
             if match:
@@ -121,8 +122,12 @@ class TestLiveEntityOps:
 def _entity_id_from(result: str) -> str | None:
     try:
         parsed = json.loads(result)
-        if isinstance(parsed, dict) and "id" in parsed:
-            return str(parsed["id"])
+        if isinstance(parsed, dict):
+            # Native create_entity (gem 0.5.0) answers {"entity_id": ...}; the
+            # editor-Python fallback prints "Created entity [id]".
+            for key in ("entity_id", "id"):
+                if key in parsed:
+                    return str(parsed[key])
     except json.JSONDecodeError:
         pass
     match = re.search(r"\[?(\d{6,})\]?", result)
@@ -195,8 +200,11 @@ class TestLiveTransform:
         entity_id: str | None = None
         try:
             parsed = json.loads(create_result)
-            if isinstance(parsed, dict) and "id" in parsed:
-                entity_id = str(parsed["id"])
+            if isinstance(parsed, dict):
+                for key in ("entity_id", "id"):
+                    if key in parsed:
+                        entity_id = str(parsed[key])
+                        break
         except (json.JSONDecodeError, TypeError):
             pass
 
@@ -231,7 +239,13 @@ class TestLiveTransform:
                     scale=[2.0, 2.0, 2.0],
                 )
             )
-            assert "Transform set" in set_result or "error" in set_result.lower()
+            # Native set_transform (gem 0.5.0) returns the entity JSON; the
+            # editor-Python fallback prints "Transform set for entity [id]".
+            assert (
+                "Transform set" in set_result
+                or '"position"' in set_result
+                or "error" in set_result.lower()
+            )
 
             get_result = _run(_call(mcp_server, "get_transform", entity_id=entity_id))
             try:

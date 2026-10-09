@@ -9,6 +9,7 @@ import asyncio
 import base64
 import io
 import json
+import math
 import sys
 import time
 import types
@@ -29,6 +30,7 @@ from o3de_mcp.tools.editor import (
     _get_editor_port,
     _get_editor_timeout,
     _get_tls_context,
+    _quaternion_to_euler_degrees_xyz,
     _send_editor_command,
     _validate_component_type,
     _validate_console_command,
@@ -453,8 +455,17 @@ async def _call_tool(tool_name: str, arguments: dict, mock_output: str = "ok") -
     register_editor_tools(mcp)
     with patch("o3de_mcp.tools.editor._pool") as mock_pool:
         mock_pool.send_script = AsyncMock(return_value=mock_output)
+        # An older gem: the native-first mutation tools fall back to their scripts.
+        mock_pool.send_request = AsyncMock(return_value=_UNKNOWN_REQUEST_TYPE)
         content = (await mcp.call_tool(tool_name, arguments)).content
     return content[0].text
+
+
+_UNKNOWN_REQUEST_TYPE = {
+    "status": "error",
+    "code": "editor_error",
+    "error": "Unknown request type: create_entity",
+}
 
 
 async def _call_capture_raw(output_path: str, send) -> str:
@@ -1333,6 +1344,218 @@ class TestNativeSnapshotTools:
         parsed = json.loads(text)
         assert parsed["status"] == "error"
         assert parsed["code"] == "agent_server_required"
+
+
+class TestNativeMutationTools:
+    """create_entity / set_transform / delete_entity try the AgentServer's native
+    request types (gem 0.5.0) first and fall back to editor Python only when the
+    type is unavailable."""
+
+    @staticmethod
+    async def _call(tool_name: str, arguments: dict, response: dict) -> tuple[str, list, int]:
+        from mcp.server import MCPServer
+
+        from o3de_mcp.tools.editor import register_editor_tools
+
+        mcp = MCPServer("test")
+        register_editor_tools(mcp)
+        with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+            mock_pool.send_request = AsyncMock(return_value=response)
+            mock_pool.send_script = AsyncMock(return_value="script ran")
+            content = (await mcp.call_tool(tool_name, arguments)).content
+            calls = mock_pool.send_request.call_args_list
+            scripts = mock_pool.send_script.await_count
+        return content[0].text, calls, scripts
+
+    def test_create_entity_returns_the_native_json(self) -> None:
+        payload = '{"entity_id": 123, "name": "Thing", "position": [0.0, 0.0, 0.0]}'
+        text, calls, scripts = asyncio.run(
+            self._call("create_entity", {"name": "Thing"}, {"status": "ok", "output": payload})
+        )
+        assert text == payload
+        assert scripts == 0
+        assert calls[0].args[0] == "create_entity"
+        assert calls[0].kwargs["params"] == {"name": "Thing"}
+
+    def test_create_entity_sends_the_parent_id(self) -> None:
+        _, calls, _ = asyncio.run(
+            self._call(
+                "create_entity",
+                {"name": "Child", "parent_id": "456"},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert calls[0].kwargs["params"] == {"name": "Child", "parent_id": "456"}
+
+    def test_delete_entity_returns_the_native_json(self) -> None:
+        text, calls, scripts = asyncio.run(
+            self._call(
+                "delete_entity",
+                {"entity_id": "[789]"},
+                {"status": "ok", "output": '{"deleted": 789}'},
+            )
+        )
+        assert text == '{"deleted": 789}'
+        assert scripts == 0
+        assert calls[0].args[0] == "delete_entity"
+        assert calls[0].kwargs["params"] == {"entity_id": "789"}
+
+    def test_set_transform_converts_to_the_native_shape(self) -> None:
+        payload = '{"id": 123, "name": "Thing", "position": [1.0, 2.0, 3.0]}'
+        half = math.sqrt(0.5)
+        text, calls, scripts = asyncio.run(
+            self._call(
+                "set_transform",
+                {
+                    "entity_id": "123",
+                    "position": [1, 2, 3],
+                    "rotation": [0, 0, half, half],  # 90 degrees about Z
+                    "scale": [2, 2, 2],
+                },
+                {"status": "ok", "output": payload},
+            )
+        )
+        assert text == payload
+        assert scripts == 0
+        assert calls[0].args[0] == "set_transform"
+        params = calls[0].kwargs["params"]
+        assert params["entity_id"] == "123"
+        assert params["position"] == [1.0, 2.0, 3.0]
+        assert params["scale"] == 2.0
+        assert params["rotation"] == pytest.approx([0.0, 0.0, 90.0])
+
+    def test_set_transform_sends_only_the_given_fields(self) -> None:
+        _, calls, _ = asyncio.run(
+            self._call(
+                "set_transform",
+                {"entity_id": "123", "position": [1, 2, 3]},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert calls[0].kwargs["params"] == {"entity_id": "123", "position": [1.0, 2.0, 3.0]}
+
+    def test_set_transform_with_a_non_uniform_scale_uses_python(self) -> None:
+        text, calls, scripts = asyncio.run(
+            self._call(
+                "set_transform",
+                {"entity_id": "123", "scale": [1, 2, 3]},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert calls == []
+        assert scripts == 1
+        assert text == "script ran"
+
+    @pytest.mark.parametrize(
+        "tool, arguments",
+        [
+            ("create_entity", {"name": "Thing"}),
+            ("set_transform", {"entity_id": "123", "position": [1, 2, 3]}),
+            ("delete_entity", {"entity_id": "123"}),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "response",
+        [
+            {"status": "error", "code": "editor_error", "error": "Unknown request type: x"},
+            {"status": "error", "code": "agent_server_required", "error": "legacy transport"},
+        ],
+        ids=["older_gem", "legacy_transport"],
+    )
+    def test_falls_back_to_the_script_when_the_type_is_unavailable(
+        self, tool: str, arguments: dict, response: dict
+    ) -> None:
+        text, calls, scripts = asyncio.run(self._call(tool, arguments, response))
+        assert calls[0].args[0] == tool
+        assert scripts == 1
+        assert text == "script ran"
+
+    @pytest.mark.parametrize(
+        "tool, arguments, message",
+        [
+            ("create_entity", {"name": "Bad"}, "invalid entity name 'Bad'"),
+            (
+                "set_transform",
+                {"entity_id": "123", "position": [1, 2, 3]},
+                "position out of bounds",
+            ),
+            ("delete_entity", {"entity_id": "1"}, "refusing to delete the level's root entity"),
+        ],
+    )
+    def test_a_native_refusal_is_returned_without_a_script(
+        self, tool: str, arguments: dict, message: str
+    ) -> None:
+        text, _, scripts = asyncio.run(
+            self._call(tool, arguments, {"status": "error", "error": message})
+        )
+        assert scripts == 0, "a refused mutation must not be retried through Python"
+        parsed = json.loads(text)
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "editor_error"
+        assert parsed["message"] == message
+
+    def test_an_unreachable_editor_is_not_retried_through_python(self) -> None:
+        text, _, scripts = asyncio.run(
+            self._call(
+                "delete_entity",
+                {"entity_id": "123"},
+                {"status": "error", "code": "editor_unavailable", "error": "not reachable"},
+            )
+        )
+        assert scripts == 0
+        assert json.loads(text)["code"] == "editor_unavailable"
+
+
+def _quaternion_from_euler_degrees_xyz(degrees: list[float]) -> list[float]:
+    """Port of AZ::Quaternion::CreateFromEulerDegreesXYZ, the gem's native inverse."""
+    hx, hy, hz = (math.radians(d) * 0.5 for d in degrees)
+    sx, cx, sy, cy, sz, cz = (
+        math.sin(hx),
+        math.cos(hx),
+        math.sin(hy),
+        math.cos(hy),
+        math.sin(hz),
+        math.cos(hz),
+    )
+    return [
+        cx * sy * sz + sx * cy * cz,
+        cx * sy * cz - sx * cy * sz,
+        cx * cy * sz + sx * sy * cz,
+        cx * cy * cz - sx * sy * sz,
+    ]
+
+
+class TestQuaternionToEulerDegreesXYZ:
+    @pytest.mark.parametrize(
+        "degrees",
+        [
+            [0.0, 0.0, 0.0],
+            [90.0, 0.0, 0.0],
+            [0.0, 45.0, 0.0],
+            [0.0, 0.0, 90.0],
+            [10.0, 20.0, 30.0],
+            [-30.0, 60.0, -120.0],
+            [170.0, -80.0, 15.0],
+        ],
+    )
+    def test_round_trips_the_engine_conversion(self, degrees: list[float]) -> None:
+        quaternion = _quaternion_from_euler_degrees_xyz(degrees)
+        assert _quaternion_to_euler_degrees_xyz(quaternion) == pytest.approx(degrees, abs=1e-6)
+
+    def test_normalizes_an_unnormalized_quaternion(self) -> None:
+        half = math.sqrt(0.5)
+        scaled = [0.0, 0.0, half * 3.0, half * 3.0]
+        assert _quaternion_to_euler_degrees_xyz(scaled) == pytest.approx([0.0, 0.0, 90.0])
+
+    def test_rejects_a_zero_quaternion(self) -> None:
+        with pytest.raises(ValueError, match="all zeros"):
+            _quaternion_to_euler_degrees_xyz([0.0, 0.0, 0.0, 0.0])
+
+    def test_handles_the_gimbal_lock_pole(self) -> None:
+        quaternion = _quaternion_from_euler_degrees_xyz([0.0, 90.0, 0.0])
+        roll, pitch, yaw = _quaternion_to_euler_degrees_xyz(quaternion)
+        assert pitch == pytest.approx(90.0, abs=1e-3)
+        assert roll == 0.0 and yaw == 0.0
 
 
 class TestCreatePrefabFromEntity:

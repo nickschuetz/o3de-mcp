@@ -92,7 +92,7 @@ The [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion
 
 Scripts are base64-encoded for safe transport and executed in the editor's embedded Python interpreter.
 
-Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and `get_bus_schema` natively in C++ (the last two from gem 0.4.0). `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the three snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. On the legacy RemoteConsole transport those requests return an `agent_server_required` error.
+Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and `get_bus_schema` natively in C++ (the last two from gem 0.4.0), plus `create_entity`, `set_transform` and `delete_entity` from gem 0.5.0. `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. The three mutation tools and `get_bus_schema_live` try their native type first and send their editor-Python script only when the gem answers `Unknown request type`; on the legacy RemoteConsole transport native requests return an `agent_server_required` error, which those tools also treat as "fall back", while the snapshot tools report it.
 
 #### Connection lifecycle & timeouts
 
