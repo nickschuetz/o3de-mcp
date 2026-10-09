@@ -175,7 +175,8 @@ class TestLiveEntityHierarchyAndComponents:
         assert removed.startswith("Removed Mesh"), removed
 
         again = _run(_call(mcp_server, "remove_component", entity_id=entity, component_type="Mesh"))
-        assert "is not on entity" in again, again
+        parsed = json.loads(again)
+        assert parsed["status"] == "error" and parsed["code"] == "component_not_on_entity", again
 
         listed = json.loads(_run(_call(mcp_server, "get_entity_components", entity_id=entity)))
         assert not any(c["type"] == "Mesh" for c in listed), listed
@@ -563,13 +564,22 @@ class TestLiveNativeTools:
     ) -> None:
         parsed = json.loads(_run(_call(mcp_server, "get_entity", entity_id="999999999999")))
         _skip_if_no_native(parsed)
-        # A missing id is reported as a JSON error, and the editor stays up. The
-        # native read tools pass the gem's response through verbatim, so the gem
-        # reports a not-found entity in its own shape ({"entity_id", "error"})
-        # rather than the o3de-mcp failure envelope; tolerate either.
-        assert parsed.get("status") == "error" or "error" in parsed, parsed
+        # A missing id is reported as an error, and the editor stays up.
         caps = json.loads(_run(_call(mcp_server, "get_capabilities")))
         assert caps["editor"]["status"] == "connected"
+        api = str((caps["editor"].get("agent_server") or {}).get("api_version") or "0")
+        if tuple(int(x) for x in api.split(".") if x.isdigit()) >= (0, 4, 0):
+            # Gem API 0.4.0+ answers every refusal with status error and a code,
+            # which o3de-mcp turns into its failure envelope.
+            assert parsed == {
+                "status": "error",
+                "code": "not_found",
+                "message": "No entity with id 999999999999",
+            }, parsed
+        else:
+            # Older gems report a missing entity inside a successful reply, in their
+            # own {"entity_id", "error"} shape, which passes through verbatim.
+            assert parsed.get("status") == "error" or "error" in parsed, parsed
 
     def test_get_bus_schema_live_uses_the_native_path_for_a_gem_bus(
         self, mcp_server: MCPServer, project_path: str
