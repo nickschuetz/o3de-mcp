@@ -870,15 +870,16 @@ class TestListLevels:
             _call_tool("list_levels", {"project_path": str(tmp_path)}, mock_output="")
         )
         parsed = json.loads(result)
-        assert "error" in parsed
-        assert parsed["levels"] == []
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "levels_dir_not_found"
 
     def test_no_project_path_and_no_registered(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             with patch("o3de_mcp.utils.o3de.list_registered_projects", return_value=[]):
                 result = asyncio.run(_call_tool("list_levels", {}, mock_output=""))
                 parsed = json.loads(result)
-                assert "error" in parsed
+                assert parsed["status"] == "error"
+                assert parsed["code"] == "project_not_found"
 
 
 # --- Phase 4: Viewport camera + screenshot tool tests ---

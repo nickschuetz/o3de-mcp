@@ -184,7 +184,7 @@ class TestLiveEntityHierarchyAndComponents:
         entity, _, created = two_entities
         before = len(json.loads(_run(_call(mcp_server, "list_entities"))))
         result = json.loads(_run(_call(mcp_server, "duplicate_entity", entity_id=entity)))
-        assert "error" not in result, result
+        assert result.get("status") != "error", result
         new_id = str(result["id"]).strip("[]")
         created.append(new_id)
         # The duplicate is a new, valid entity distinct from its source. Its name is copied
@@ -337,7 +337,7 @@ class TestLiveViewport:
         result = _run(_call(mcp_server, "get_viewport_camera"))
         try:
             parsed = json.loads(result)
-            assert "position" in parsed or "error" in parsed
+            assert "position" in parsed or parsed.get("status") == "error"
         except json.JSONDecodeError:
             assert isinstance(result, str)
 
@@ -443,7 +443,7 @@ class TestLiveAssets:
             )
         )
         parsed = json.loads(result)
-        if "error" not in parsed:
+        if parsed.get("status") != "error":
             assert "lines" in parsed
             assert isinstance(parsed["lines"], list)
 
@@ -458,7 +458,7 @@ class TestLiveAssets:
             )
         )
         parsed = json.loads(result)
-        if "error" not in parsed:
+        if parsed.get("status") != "error":
             assert "errors" in parsed
             assert "count" in parsed
 
@@ -548,7 +548,7 @@ class TestLiveNativeTools:
         eid = self._snapshot_entity_id(mcp_server)
         parsed = json.loads(_run(_call(mcp_server, "get_entity", entity_id=eid)))
         _skip_if_no_native(parsed)
-        assert "error" not in parsed, parsed
+        assert parsed.get("status") != "error", parsed
         assert str(parsed["id"]).strip("[]") == eid
         assert parsed.get("name")
         assert isinstance(parsed.get("components"), list)
@@ -558,9 +558,11 @@ class TestLiveNativeTools:
     ) -> None:
         parsed = json.loads(_run(_call(mcp_server, "get_entity", entity_id="999999999999")))
         _skip_if_no_native(parsed)
-        # A missing id is a JSON error, and the editor stays up: the capability
-        # probe right after must still report connected.
-        assert "error" in parsed, parsed
+        # A missing id is reported as a JSON error, and the editor stays up. The
+        # native read tools pass the gem's response through verbatim, so the gem
+        # reports a not-found entity in its own shape ({"entity_id", "error"})
+        # rather than the o3de-mcp failure envelope; tolerate either.
+        assert parsed.get("status") == "error" or "error" in parsed, parsed
         caps = json.loads(_run(_call(mcp_server, "get_capabilities")))
         assert caps["editor"]["status"] == "connected"
 
@@ -637,7 +639,7 @@ class TestLiveTrackView:
                     )
                 )
             )
-            assert "error" not in e, e
+            assert e.get("status") != "error", e
 
             info = json.loads(_run(_call(mcp_server, "get_sequence", name=seq)))
             assert info["start"] == 0.0 and info["end"] == 4.0, info

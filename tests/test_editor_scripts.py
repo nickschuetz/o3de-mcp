@@ -548,9 +548,16 @@ class TestNoFalseSuccess:
             "duplicate_entity",
             surface,
             tmp_path,
-            {("PrefabPublicRequestBus", "DuplicateEntitiesInInstance"): Failure()},
+            {
+                # The entity must be found first, so the script reaches the
+                # duplicate call and reports its failure (not entity_not_found).
+                ("SearchBus", "SearchEntities"): [Anything()],
+                ("PrefabPublicRequestBus", "DuplicateEntitiesInInstance"): Failure(),
+            },
         )
-        assert "error" in json.loads(out)
+        parsed = json.loads(out)
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "duplicate_failed"
 
     def test_duplicate_entity_returns_the_new_id(self, surface: dict, tmp_path: Path) -> None:
         class Ok:
