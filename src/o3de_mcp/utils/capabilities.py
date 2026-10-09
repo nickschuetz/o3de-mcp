@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 _EDITOR_TOOLS = frozenset(
     {
+        # Track View (cinematic sequences), reflected via azlmbr.legacy.trackview
+        "list_sequences",
+        "create_sequence",
+        "delete_sequence",
+        "get_sequence",
+        "set_sequence_time_range",
+        "add_sequence_node",
+        "play_sequence",
+        "stop_sequence",
         "run_editor_python",
         "list_entities",
         "create_entity",

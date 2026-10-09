@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Track View tools** (`tools/trackview.py`, 8 tools): `list_sequences`,
+  `create_sequence`, `delete_sequence`, `get_sequence`, `set_sequence_time_range`,
+  `add_sequence_node`, `play_sequence`, `stop_sequence`. Cinematic sequence authoring
+  over the reflected `azlmbr.legacy.trackview` editor-Python API, no gem request type.
+  Track and keyframe authoring are intentionally not exposed: the reflected API needs
+  each node type's exact parameter-type name strings and the only key path is the
+  interactive record workflow, neither reliable to drive. Verified live: full sequence
+  lifecycle (create, describe, time range, Director and Event nodes, play/stop, delete).
+
 ## [0.5.0] - 2026-10-09
 
 ### Added
