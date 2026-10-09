@@ -405,21 +405,36 @@ _ENTITY_RESOLVER_SNIPPET = """
 import azlmbr.entity as entity
 import azlmbr.bus as bus
 
+class _O3deEntityNotFound(LookupError):
+    pass
+
 def _resolve_entity_id(eid_str):
-    eid_str = str(eid_str).strip()
-    try:
-        candidate = entity.EntityId(int(eid_str.strip('[]')))
-        if candidate.IsValid():
-            return candidate
-    except Exception:
-        pass
+    # Find the entity's own id object by its text. Rebuilding one with
+    # entity.EntityId(n) is not reliable on 26.10.0 (it answers an invalid id for
+    # every n), and a wrong id would act on the wrong entity or none.
+    wanted = str(eid_str).strip().strip('[]')
     search_filter = entity.SearchFilter()
-    entity_ids = entity.SearchBus(bus.Broadcast, 'SearchEntities', search_filter)
-    for eid in (entity_ids or []):
-        if str(eid) == eid_str or str(eid).strip('[]') == eid_str.strip('[]'):
+    for eid in (entity.SearchBus(bus.Broadcast, 'SearchEntities', search_filter) or []):
+        if str(eid).strip('[]') == wanted:
             return eid
-    return None
+    raise _O3deEntityNotFound(f'No entity with id {wanted}')
 """
+
+
+def _wrap_for_entity_lookup(script: str) -> str:
+    """Run a script that resolves entity ids so an unknown id is an envelope.
+
+    The resolver raises ``_O3deEntityNotFound``; running the script under a
+    handler turns that into ``entity_not_found`` instead of a traceback, for
+    every tool that takes an entity id.
+    """
+    return (
+        _ENTITY_RESOLVER_SNIPPET
+        + "try:\n"
+        + f"    exec(compile({script!r}, '<o3de-mcp>', 'exec'), globals())\n"
+        + "except _O3deEntityNotFound as _o3de_e:\n"
+        + "    _o3de_fail('entity_not_found', str(_o3de_e))\n"
+    )
 
 
 # Editor scripts report a failure with ``_o3de_fail(code, message)``, which prints
@@ -820,8 +835,10 @@ class _EditorConnectionPool:
         self._last_failure_time = None
 
         if response.get("status") == "error":
+            # Keep the gem's code (secure_mode, execution_failed, ...) when it sends one.
+            code = str(response.get("code") or "editor_error")
             error_msg = str(response.get("error", "Unknown error"))
-            return _format_error("editor_error", error_msg)
+            return _format_error(code, error_msg)
 
         return str(response.get("output", ""))
 
@@ -985,7 +1002,7 @@ async def _async_run_editor_script(script: str, timeout: float | None = None) ->
     ``None`` uses the O3DE_EDITOR_TIMEOUT default.
     """
     if "_resolve_entity_id" in script:
-        script = _ENTITY_RESOLVER_SNIPPET + script
+        script = _wrap_for_entity_lookup(script)
     if "_o3de_fail(" in script:
         script = _FAIL_SNIPPET + script
     return await _pool.send_script(script, timeout=timeout)

@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-uniform scale waits for a native gem path. The editor-Python path also no
   longer resets an entity's scale to 1 when `scale` is not given, and it reads
   the scale back, reporting `set_transform_failed` when it did not land.
+- **Entity ids are looked up, never rebuilt, in editor scripts.** The shared
+  resolver tried `azlmbr.entity.EntityId(n)` first; on 26.10.0 that answers an
+  invalid id for every `n` (reported by the AiCompanion session), so it only ever
+  worked through its search fallback. It now always finds the entity's own id by
+  its text, and an unknown id is the error `entity_not_found` instead of a
+  traceback. Script refusals also keep the gem's own code (for example
+  `secure_mode` when editor Python is disabled) instead of a generic `editor_error`.
 - **Editor failures use the error envelope too.** The failure envelope from the error
   contract below was returned by the server and by some editor tools, but other editor
   tools still printed plain-text failures (add/remove component, assign_asset, set_parent,

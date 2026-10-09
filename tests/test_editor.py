@@ -1257,10 +1257,15 @@ def _run_prefab_script(
     stub_bus.Broadcast = object()
     stub_entity = types.ModuleType("azlmbr.entity")
     stub_entity.EntityId = lambda *a: object()
+
+    class _StubEntityId:
+        def __str__(self) -> str:
+            return "[123]"
+
     # The generated scripts carry a shared `_resolve_entity_id` prelude that
-    # looks an id up through the search bus before use.
+    # looks an id up through the search bus by its text: the level holds 123.
     stub_entity.SearchFilter = lambda *a, **k: object()
-    stub_entity.SearchBus = lambda *a, **k: []
+    stub_entity.SearchBus = lambda *a, **k: [_StubEntityId()]
     stub_math = types.ModuleType("azlmbr.math")
     stub_math.Vector3 = lambda *a: object()
     stub_math.Uuid = lambda *a: object()
@@ -1676,6 +1681,27 @@ class TestNativeMutationTools:
                 )
             )
         assert "all zeros" in str(excinfo.value.__cause__ or excinfo.value)
+
+
+class TestScriptRefusalKeepsTheGemCode:
+    def test_secure_mode_is_reported_as_such(self) -> None:
+        from o3de_mcp.tools.editor import _EditorConnectionPool
+
+        pool = _EditorConnectionPool()
+        reply = {"status": "error", "code": "secure_mode", "error": "execute_python is disabled"}
+
+        async def run() -> str:
+            with patch("o3de_mcp.tools.editor._async_recv_framed", AsyncMock(return_value=reply)):
+                writer = AsyncMock()
+                writer.write = lambda *_: None
+                return await pool._send_framed_script(AsyncMock(), writer, "print(1)", 5.0)
+
+        parsed = json.loads(asyncio.run(run()))
+        assert parsed == {
+            "status": "error",
+            "code": "secure_mode",
+            "message": "execute_python is disabled",
+        }
 
 
 class TestStringEntityIdTolerance:
