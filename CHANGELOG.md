@@ -9,15 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`set_transform` refuses a non-uniform scale instead of faking it.** An O3DE
-  Transform holds only a uniform scale, so a scale like `[50, 50, 1]` was applied
-  as a uniform 50 and reported as success. It now returns
-  `non_uniform_scale_unsupported`. Adding the engine's Non-uniform Scale component
-  from editor Python does not work either (live: `AddNonUniformScaleComponent`
-  adds nothing, and the component is not in the add-component list), so real
-  non-uniform scale waits for a native gem path. The editor-Python path also no
-  longer resets an entity's scale to 1 when `scale` is not given, and it reads
-  the scale back, reporting `set_transform_failed` when it did not land.
+- **`set_transform` applies non-uniform scale for real, and stops faking it.** An O3DE
+  Transform holds only a uniform scale, so a scale like `[50, 50, 1]` was applied as a
+  uniform 50 and reported as success. On AiCompanion gem API 0.5.0+ (gem 0.6.0) the
+  gem now applies it with the engine's Non-uniform Scale component (the editor
+  Python API cannot add that component; tried live), and `set_transform` sends
+  rotations as quaternions natively, which also removes the editor-Python detour
+  for rotations at a gimbal pole. On older gems a non-uniform scale is refused with
+  `non_uniform_scale_unsupported`. `get_transform` reports the effective scale with
+  `uniform_scale` and `non_uniform_scale`. The editor-Python path also no longer
+  resets an entity's scale to 1 when `scale` is not given, and it reads the scale
+  back, reporting `set_transform_failed` when it did not land.
 - **Entity ids are looked up, never rebuilt, in editor scripts.** The shared
   resolver tried `azlmbr.entity.EntityId(n)` first; on 26.10.0 that answers an
   invalid id for every `n` (reported by the AiCompanion session), so it only ever
