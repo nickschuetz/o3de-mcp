@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-09
+
+Pairs with AiCompanion gem 0.6.0 (API 0.5.0); the animation, asset readiness and
+native scale features need it. 96 tools. Highlights: EMotion FX anim graph reads and
+authoring (17 tools), per-asset readiness (`wait_for_asset` and friends), real
+non-uniform scale and native quaternions in `set_transform`, one failure envelope across
+every tool, entity ids that survive 64-bit values, and a pre-release audit that fixed a
+set of tools that reported success for things that did not happen.
+
 ### Changed
 
 - **The last failures reported as successes, and three that never worked.** A
@@ -130,19 +139,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `set_anim_graph_node` (rename, move, enable, and reflected fields such as a motion node's
   motion ids). A transition with no source must be requested with `wildcard=True`, so a
   missing source cannot silently become a from-any-state transition. Verified live against
-  gem main (4b5298a), including a node nested under a blend tree.
+  the gem's 0.6.0 development build (4b5298a), including a node nested under a blend tree.
 - **Anim graph authoring** (9 more animation tools, 11 in all): `create_anim_graph`,
   `remove_anim_graph`, `load_anim_graph`, `save_anim_graph`, `add_anim_graph_node`,
   `remove_anim_graph_node`, `set_anim_graph_entry_state`, `add_anim_graph_parameter`
   and `remove_anim_graph_parameter`, over the gem's native authoring request types
-  (gem main or 0.6.0+). Writes refuse asset- or runtime-owned graphs, so author on a
+  (gem 0.6.0+). Writes refuse asset- or runtime-owned graphs, so author on a
   graph from `create_anim_graph` or `load_anim_graph`; each write is one Animation
   Editor undo step, separate from the editor's main undo, and `save_anim_graph` (which
   must stay inside the project root) is not undoable. Verified live: build a graph with
   states, entry state and parameters, save it, reload it, and the gem's refusals.
 - **Animation tools** (`tools/animation.py`, 2 tools): `list_anim_graphs` and
   `get_anim_graph`, EMotion FX anim graph reads over the AiCompanion gem's native
-  request types. They need gem main or 0.6.0+ and the EMotionFX gem; an older gem
+  request types. They need gem 0.6.0+ and the EMotionFX gem; an older gem
   answers `Unknown request type` (code `unknown_request_type` from gem 0.5.0). No editor-Python fallback (EMotion FX
   anim graphs are not usefully reflected to Python); they work in secure mode.
   `get_anim_graph` takes exactly one of `anim_graph_id` (32-bit number or digit

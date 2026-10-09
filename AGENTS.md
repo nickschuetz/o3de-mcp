@@ -40,7 +40,7 @@ holds the Editor, Track View and Animation groups plus the four asset readiness 
 | Project | 17 | No | Engines, projects, gems, templates, builds (blocking and background), export |
 | Assets | 9 | Partly | Asset Processor status, refresh/wait, log tailing (no editor); per-asset readiness and build failure logs (editor, gem 0.6.0+) |
 | Track View | 8 | Yes | Cinematic sequences: create/list/describe/delete, time range, add nodes, play/stop |
-| Animation | 17 | Yes | EMotion FX anim graphs: list and describe; author graphs, nodes, entry states, parameters, transitions with conditions, blend-tree connections (gem main or 0.6.0+) |
+| Animation | 17 | Yes | EMotion FX anim graphs: list and describe; author graphs, nodes, entry states, parameters, transitions with conditions, blend-tree connections (gem 0.6.0+) |
 
 Less obvious tools worth knowing:
 
