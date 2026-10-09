@@ -31,6 +31,8 @@ graph LR
         INTRO["introspection.py<br/>EBus schema,<br/>RenderDoc"]
         PR["project.py<br/>Project, Gem,<br/>Build, Export"]
         ASSET["assets.py<br/>Asset Processor,<br/>Logs"]
+        TV["trackview.py<br/>Track View<br/>sequences"]
+        ANIM["animation.py<br/>EMotion FX<br/>anim graphs"]
         UC["utils/capabilities.py<br/>Probe editor & CLI"]
         UO["utils/o3de.py<br/>Engine discovery,<br/>CLI runner"]
     end
@@ -57,9 +59,13 @@ graph LR
     S --> INTRO
     S --> PR
     S --> ASSET
+    S --> TV
+    S --> ANIM
     CAP --> UC
     ED -- "TCP :4600 (length-prefixed JSON)<br/>connect ≤5s · command ≤600s" --> AS
     AS -- "Python tools:<br/>forwards script" --> EPB
+    TV -- "editor Python<br/>(azlmbr.legacy.trackview)" --> AS
+    ANIM -- "native requests<br/>list_anim_graphs, get_anim_graph" --> AS
     AS -. "native tools (no Python, work in secure mode):<br/>get_scene_snapshot, get_entity_tree, get_entity,<br/>validate_scene, get_bus_schema,<br/>create_entity, set_transform, delete_entity" .-> AS
     INTRO -- "reads .pyi stubs" --> STUBS
     PR --> UO
@@ -92,7 +98,7 @@ The [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion
 
 Scripts are base64-encoded for safe transport and executed in the editor's embedded Python interpreter.
 
-Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and `get_bus_schema` natively in C++ (the last two from gem 0.4.0), plus `create_entity`, `set_transform` and `delete_entity` from gem 0.5.0. `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. The three mutation tools and `get_bus_schema_live` try their native type first and send their editor-Python script only when the gem answers `Unknown request type`; on the legacy RemoteConsole transport native requests return an `agent_server_required` error, which those tools also treat as "fall back", while the snapshot tools report it.
+Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and `get_bus_schema` natively in C++ (the last two from gem 0.4.0), plus `create_entity`, `set_transform` and `delete_entity` from gem 0.5.0. Gem main (shipping as 0.6.0) adds `list_anim_graphs` and `get_anim_graph`, which the animation tools call directly with no Python fallback. `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. The three mutation tools and `get_bus_schema_live` try their native type first and send their editor-Python script only when the gem answers `Unknown request type`; on the legacy RemoteConsole transport native requests return an `agent_server_required` error, which those tools also treat as "fall back", while the snapshot tools report it.
 
 #### Connection lifecycle & timeouts
 
@@ -128,6 +134,8 @@ Always call `get_capabilities()` first to determine which tool categories are av
 | `tools/editor.py` | 41 editor automation tools — entity CRUD, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, persistent sessions; pooled TCP transport with protocol auto-detection |
 | `tools/introspection.py` | 3 tools — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs, live EBus query, and RenderDoc frame capture |
 | `tools/project.py` | 17 project management tools — engines, projects, gems, templates, blocking and background builds, export |
+| `tools/trackview.py` | 8 Track View tools: cinematic sequences (create/list/describe/delete, time range, nodes, play/stop) over editor Python `azlmbr.legacy.trackview` |
+| `tools/animation.py` | 2 EMotion FX tools: `list_anim_graphs` and `get_anim_graph` over the gem's native request types (gem main or 0.6.0+, EMotionFX gem); no Python fallback |
 | `tools/assets.py` | 5 asset pipeline tools — Asset Processor status, refresh/wait, log tailing and error filtering |
 | `utils/capabilities.py` | Runtime probing logic (TCP connect check, CLI availability) |
 | `utils/introspection.py` | Parses `<project>/user/python_symbols/azlmbr/*.pyi` stubs into a structured EBus schema |

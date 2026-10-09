@@ -49,9 +49,11 @@ def mcp_server() -> MCPServer:
     register_introspection_tools(mcp)
     register_project_tools(mcp)
     register_assets_tools(mcp)
+    from o3de_mcp.tools.animation import register_animation_tools
     from o3de_mcp.tools.trackview import register_trackview_tools
 
     register_trackview_tools(mcp)
+    register_animation_tools(mcp)
     return mcp
 
 
@@ -666,6 +668,61 @@ class TestLiveTrackView:
                     mcp_server, "add_sequence_node", name="X", node_type="Nonsense", node_name="n"
                 )
             )
+
+
+def _skip_if_no_anim_graphs(parsed: dict) -> None:
+    """Skip when the gem predates the anim graph reads or EMotion FX is not loaded."""
+    if isinstance(parsed, dict) and parsed.get("status") == "error":
+        message = str(parsed.get("message", ""))
+        if parsed.get("code") == "unknown_request_type" or "Unknown request type" in message:
+            pytest.skip("gem does not serve the anim graph reads (needs gem main or 0.6.0+)")
+        if "EMotion FX is not available" in message or parsed.get("code") == "unavailable":
+            pytest.skip("the EMotionFX gem is not loaded in this editor")
+
+
+class TestLiveAnimGraphs:
+    """EMotion FX anim graph reads through the gem's native request types."""
+
+    def test_list_anim_graphs(self, mcp_server: MCPServer) -> None:
+        parsed = json.loads(_run(_call(mcp_server, "list_anim_graphs")))
+        _skip_if_no_anim_graphs(parsed)
+        assert isinstance(parsed.get("anim_graphs"), list), parsed
+        assert "editor_mode" in parsed, parsed
+
+    def test_get_anim_graph_reports_an_unknown_id_as_an_error(self, mcp_server: MCPServer) -> None:
+        parsed = json.loads(_run(_call(mcp_server, "get_anim_graph", anim_graph_id=4000000000)))
+        _skip_if_no_anim_graphs(parsed)
+        assert parsed["status"] == "error", parsed
+        assert "not found" in parsed["message"], parsed
+
+    def test_describes_a_graph_by_id_and_by_id_string(self, mcp_server: MCPServer) -> None:
+        # Make a graph to read: the gem's in-memory create_anim_graph (authoring
+        # branch onward). Skip when this gem cannot create one.
+        from o3de_mcp.tools.editor import _pool
+
+        listed = json.loads(_run(_call(mcp_server, "list_anim_graphs")))
+        _skip_if_no_anim_graphs(listed)
+        created = _run(_pool.send_request("create_anim_graph"))
+        if created.get("status") != "ok":
+            pytest.skip(f"gem cannot create an anim graph here: {created.get('error')}")
+        graph_id = json.loads(created["output"])["id"]
+        try:
+            ids = [
+                g["id"]
+                for g in json.loads(_run(_call(mcp_server, "list_anim_graphs")))["anim_graphs"]
+            ]
+            assert graph_id in ids
+            by_id = json.loads(_run(_call(mcp_server, "get_anim_graph", anim_graph_id=graph_id)))
+            by_str = json.loads(
+                _run(_call(mcp_server, "get_anim_graph", anim_graph_id=str(graph_id)))
+            )
+            assert by_id["id"] == graph_id, by_id
+            assert by_str == by_id
+            # A new graph holds just its root state machine.
+            assert [n["type"] for n in by_id["nodes"]] == ["AnimGraphStateMachine"], by_id
+            assert by_id["root_state_machine_id"] == by_id["nodes"][0]["id"]
+        finally:
+            _run(_pool.send_request("remove_anim_graph", params={"anim_graph_id": graph_id}))
 
 
 class TestLiveEdgeCases:

@@ -960,6 +960,22 @@ def _run_editor_script(script: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+async def _native_request(request_type: str, params: dict[str, object] | None = None) -> str:
+    """Run one of the AgentServer's C++ request types and return its output.
+
+    The AiCompanion gem serves these natively (scene snapshot, validator and
+    EMotion FX buses), so they work even when ``execute_python`` is disabled by
+    the gem's secure mode. Any reply whose status is not ``ok`` is returned as
+    the failure envelope, keeping the gem's ``code`` when it sends one.
+    """
+    response = await _pool.send_request(request_type, params=params)
+    if response.get("status") != "ok":
+        code = str(response.get("code") or "editor_error")
+        message = str(response.get("error") or response.get("message") or "Unknown error")
+        return _format_error(code, message)
+    return str(response.get("output", ""))
+
+
 def register_editor_tools(mcp: MCPServer) -> None:
     """Register all editor automation tools with the MCP server."""
 
@@ -983,20 +999,6 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script, timeout=timeout)
 
     # --- Native AgentServer requests (no editor Python involved) ---
-
-    async def _native_request(request_type: str, params: dict[str, object] | None = None) -> str:
-        """Run one of the AgentServer's C++ request types and return its output.
-
-        The AiCompanion gem serves these from its own SceneSnapshotProvider
-        and validator buses, so they work even when ``execute_python`` is
-        disabled by the gem's secure mode.
-        """
-        response = await _pool.send_request(request_type, params=params)
-        if response.get("status") != "ok":
-            code = str(response.get("code") or "editor_error")
-            message = str(response.get("error") or response.get("message") or "Unknown error")
-            return _format_error(code, message)
-        return str(response.get("output", ""))
 
     async def _native_mutation(request_type: str, params: dict[str, object]) -> str | None:
         """Try one of the gem's native mutation request types (gem 0.5.0 or later).

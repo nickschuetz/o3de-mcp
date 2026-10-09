@@ -27,7 +27,7 @@ Made a mistake?                  → undo / redo
 
 ## Tool Surface
 
-75 tools in six groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
+77 tools in seven groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
 
 | Group | Count | Editor needed | What it covers |
 |-------|-------|---------------|----------------|
@@ -37,6 +37,7 @@ Made a mistake?                  → undo / redo
 | Project | 17 | No | Engines, projects, gems, templates, builds (blocking and background), export |
 | Assets | 5 | No | Asset Processor status, refresh/wait, log tailing |
 | Track View | 8 | Yes | Cinematic sequences: create/list/describe/delete, time range, add nodes, play/stop |
+| Animation | 2 | Yes | EMotion FX anim graphs: list, and describe nodes/transitions/parameters (gem main or 0.6.0+) |
 
 Less obvious tools worth knowing:
 
