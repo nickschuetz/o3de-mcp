@@ -42,6 +42,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The connection pool's `send_request()` and `_build_framed_request()` accept
   extra request fields (`params`) for request types that take arguments.
 
+### Fixed
+
+- **`create_level` never created a level.** Its editor script called
+  `create_level_no_prompt(name, 0)`, but the engine reflects that function as
+  `create_level_no_prompt(templateName, levelName, heightmapResolution,
+  heightmapUnitSize, terrainExportTextureSize, useTerrain)` with all six
+  arguments required (`Code/Editor/CryEditPy.cpp`, the same on `development`
+  and the 26.05 and 26.10 stabilization branches). The bindings refused the
+  two-argument call with a warning in the editor log and returned `None`, so
+  the tool always reported that it could not create the level. The script now
+  passes the full argument list with the values the engine's own Python tests
+  use, and reads the result as an `ECreateLevelResult` code where `0` is
+  success. The old `if result:` check would have been backwards even with the
+  right arguments. A new optional `template` parameter selects the level
+  template, defaulting to the editor's own `Prefabs/Default_Level.prefab`.
+
 ## [0.4.0] - 2026-09-08
 
 ### Changed
