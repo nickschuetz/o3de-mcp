@@ -204,9 +204,22 @@ def build_stub_azlmbr(
             setattr(
                 mod, bus_name, _make_bus(mod_name, bus_name, bus_spec["events"], log, overrides)
             )
-        for fn in spec["functions"]:
+        for fn, fn_spec in spec["functions"].items():
 
-            def _fn(*args: object, _n: str = f"{mod_name}.{fn}", **kwargs: object) -> Anything:
+            def _fn(
+                *args: object,
+                _n: str = f"{mod_name}.{fn}",
+                _expected: int = fn_spec["num_args"],
+                **kwargs: object,
+            ) -> Anything:
+                # The editor reflects a fixed arity for these legacy functions, so a
+                # wrong argument count (the create_level bug: 2 args for a 6-arg call)
+                # is a real defect, not something the editor would accept.
+                got = len(args) + len(kwargs)
+                if got != _expected:
+                    raise SurfaceViolation(
+                        f"{_n} takes {_expected} argument(s); the script called it with {got}"
+                    )
                 log.functions.append(_n)
                 return Anything()
 
@@ -420,6 +433,21 @@ class Failure:
 
     def GetError(self) -> str:  # noqa: N802
         return "stub failure"
+
+
+def test_surface_harness_enforces_function_arity(surface: dict) -> None:
+    # The reflection records each legacy function's argument count, and the stub
+    # enforces it, so a wrong-arity call fails. This is the class of bug create_level
+    # shipped with (it called a 6-arg engine function with 2) that the name-only
+    # harness could not catch.
+    log = CallLog()
+    mods = build_stub_azlmbr(surface, log)
+    gen = mods["azlmbr.legacy.general"]
+    # The correct 6-argument call is accepted.
+    gen.create_level_no_prompt("Prefabs/Default_Level.prefab", "Lvl", 1024, 1, 4096, False)
+    # The original bug shape (2 args) is rejected.
+    with pytest.raises(SurfaceViolation):
+        gen.create_level_no_prompt("Lvl", 0)
 
 
 def test_surface_file_is_populated(surface: dict) -> None:

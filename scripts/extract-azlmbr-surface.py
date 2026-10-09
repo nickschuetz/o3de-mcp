@@ -27,8 +27,28 @@ _BUS_DEF = re.compile(r"^def (\w+)\(busCallType: int, busEventName: str, (?:addr
 _EVENT_LINE = re.compile(
     r"^\s*bus\.(Broadcast|Event|QueueBroadcast|QueueEvent), '(\w+)', \((.*?)\) -> (.*?)\s*$"
 )
-_FUNC_DEF = re.compile(r"^def (\w+)\(")
+_FUNC_DEF = re.compile(r"^def (\w+)\((.*)\)\s*(?:->|:)")
 _CLASS_DEF = re.compile(r"^class (\w+)")
+
+
+def _count_args(arglist: str) -> int:
+    """Count top-level comma-separated arguments in a signature's parens.
+
+    Bracket-depth aware so a type like ``Tuple[Any, Any]`` counts as one arg.
+    """
+    arglist = arglist.strip()
+    if not arglist:
+        return 0
+    depth = 0
+    count = 1
+    for ch in arglist:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            count += 1
+    return count
 
 
 def _module_name(root: Path, stub: Path) -> str:
@@ -41,7 +61,7 @@ def extract(root: Path) -> dict:
     surface: dict = {"engine_stub_root": str(root), "modules": {}}
     for stub in sorted(root.rglob("*.pyi")):
         mod = surface["modules"].setdefault(
-            _module_name(root, stub), {"buses": {}, "functions": [], "classes": []}
+            _module_name(root, stub), {"buses": {}, "functions": {}, "classes": []}
         )
         current_bus: dict | None = None
         for line in stub.read_text(errors="replace").splitlines():
@@ -59,8 +79,7 @@ def extract(root: Path) -> dict:
                 continue
             if m := _FUNC_DEF.match(line):
                 current_bus = None
-                if m.group(1) not in mod["functions"]:
-                    mod["functions"].append(m.group(1))
+                mod["functions"].setdefault(m.group(1), {"num_args": _count_args(m.group(2))})
                 continue
             if m := _CLASS_DEF.match(line):
                 current_bus = None
