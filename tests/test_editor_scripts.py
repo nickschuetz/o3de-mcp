@@ -322,6 +322,12 @@ NO_SCRIPT_TOOLS = frozenset(
     }
 )
 
+# Native request types whose tools fall back to editor Python when the gem is
+# too old to serve them. Refusing them keeps those scripts under test.
+PYTHON_FALLBACK_TYPES = frozenset(
+    {"get_bus_schema", "create_entity", "set_transform", "delete_entity"}
+)
+
 # Scripts that run in the editor but touch no azlmbr symbol: the session tools keep
 # state on ``__main__``, and the two introspection tools probe with ``hasattr``.
 NO_AZLMBR_TOOLS = frozenset(
@@ -355,10 +361,11 @@ def generate_script(tool: str, arguments: dict, tmp_path: Path) -> str | None:
     ):
         pool.send_script = AsyncMock(side_effect=_record)
 
-        # Native request types answer; get_bus_schema is refused so that
-        # get_bus_schema_live still exercises its editor-Python fallback here.
+        # Native request types answer; the ones that have a Python fallback are
+        # refused as an older gem would, so that get_bus_schema_live and the
+        # native-first mutation tools still exercise their scripts here.
         async def _native(request_type: str, **kwargs: object) -> dict:
-            if request_type == "get_bus_schema":
+            if request_type in PYTHON_FALLBACK_TYPES:
                 return {"status": "error", "code": "editor_error", "error": "Unknown request type"}
             return {"status": "ok", "output": "{}"}
 

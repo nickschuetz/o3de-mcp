@@ -20,6 +20,7 @@ See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blo
 - List, create, delete, and duplicate entities; reparent with `set_parent`
 - Add and remove components, get/set component properties, assign assets by path
 - Get and set transforms
+- `create_entity`, `set_transform` and `delete_entity` try the gem's native request types first (gem 0.5.0 or later, validated in C++, available in secure mode) and fall back to editor Python on older gems
 - Create, save, and instantiate prefabs
 - Create, load, save, and query levels
 - Viewport camera control, entity focus, and screenshot capture

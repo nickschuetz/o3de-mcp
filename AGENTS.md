@@ -50,6 +50,10 @@ Less obvious tools worth knowing:
 - `assign_asset` — set an asset-typed component property by path.
 - `get_scene_snapshot` / `get_entity_tree` / `get_entity` / `validate_scene` — scene state from
   the AiCompanion gem's C++ in one call; cheaper than `list_entities` plus per-entity queries.
+- `create_entity` / `set_transform` / `delete_entity`: try the gem's native request types
+  first (gem 0.5.0 or later; the gem validates the input and the call works in secure mode)
+  and fall back to editor Python on older gems. The native path answers with the gem's JSON
+  (`{"entity_id": ...}`, the entity, `{"deleted": ...}`); the fallback prints a sentence.
 
 ## Token Efficiency Rules
 

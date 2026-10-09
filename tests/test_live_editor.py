@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -106,8 +107,11 @@ class TestLiveEntityOps:
         entity_id = None
         try:
             parsed = json.loads(result)
-            if isinstance(parsed, dict) and "id" in parsed:
-                entity_id = parsed["id"]
+            if isinstance(parsed, dict):
+                # Native create_entity (gem 0.5.0) answers {"entity_id": ...}
+                # as a JSON number; the tools take the id as a string.
+                raw = parsed.get("entity_id", parsed.get("id"))
+                entity_id = str(raw) if raw is not None else None
         except json.JSONDecodeError:
             match = re.search(r"EntityId\((\d+)\)", result)
             if match:
@@ -121,8 +125,12 @@ class TestLiveEntityOps:
 def _entity_id_from(result: str) -> str | None:
     try:
         parsed = json.loads(result)
-        if isinstance(parsed, dict) and "id" in parsed:
-            return str(parsed["id"])
+        if isinstance(parsed, dict):
+            # Native create_entity (gem 0.5.0) answers {"entity_id": ...}; the
+            # editor-Python fallback prints "Created entity [id]".
+            for key in ("entity_id", "id"):
+                if key in parsed:
+                    return str(parsed[key])
     except json.JSONDecodeError:
         pass
     match = re.search(r"\[?(\d{6,})\]?", result)
@@ -195,8 +203,11 @@ class TestLiveTransform:
         entity_id: str | None = None
         try:
             parsed = json.loads(create_result)
-            if isinstance(parsed, dict) and "id" in parsed:
-                entity_id = str(parsed["id"])
+            if isinstance(parsed, dict):
+                for key in ("entity_id", "id"):
+                    if key in parsed:
+                        entity_id = str(parsed[key])
+                        break
         except (json.JSONDecodeError, TypeError):
             pass
 
@@ -231,7 +242,13 @@ class TestLiveTransform:
                     scale=[2.0, 2.0, 2.0],
                 )
             )
-            assert "Transform set" in set_result or "error" in set_result.lower()
+            # Native set_transform (gem 0.5.0) returns the entity JSON; the
+            # editor-Python fallback prints "Transform set for entity [id]".
+            assert (
+                "Transform set" in set_result
+                or '"position"' in set_result
+                or "error" in set_result.lower()
+            )
 
             get_result = _run(_call(mcp_server, "get_transform", entity_id=entity_id))
             try:
@@ -243,6 +260,42 @@ class TestLiveTransform:
                     assert abs(pos[2] - 30.0) < 0.1, f"Z position mismatch: {pos[2]}"
             except json.JSONDecodeError:
                 assert isinstance(get_result, str)
+        finally:
+            _run(_call(mcp_server, "delete_entity", entity_id=entity_id))
+
+    def test_set_rotation_round_trip(self, mcp_server: MCPServer) -> None:
+        create_result = _run(_call(mcp_server, "create_entity", name="RotationTest"))
+        entity_id = _entity_id_from(create_result)
+        assert entity_id is not None, f"no entity id in {create_result!r}"
+
+        half = math.sqrt(0.5)
+        try:
+            set_result = _run(
+                _call(
+                    mcp_server,
+                    "set_transform",
+                    entity_id=entity_id,
+                    rotation=[0.0, 0.0, half, half],  # 90 degrees about Z
+                )
+            )
+            try:
+                parsed = json.loads(set_result)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and "rotation" in parsed:
+                # Native set_transform answers the entity JSON with the
+                # rotation as XYZ Euler degrees, the form the request took.
+                assert parsed["rotation"] == pytest.approx([0.0, 0.0, 90.0], abs=0.05)
+                assert "position" in parsed and "scale" in parsed
+            else:
+                assert "Transform set" in set_result, set_result
+
+            get_result = _run(_call(mcp_server, "get_transform", entity_id=entity_id))
+            rot = json.loads(get_result)["rotation"]
+            # q and -q are the same rotation.
+            if rot[3] < 0:
+                rot = [-v for v in rot]
+            assert rot == pytest.approx([0.0, 0.0, half, half], abs=1e-3)
         finally:
             _run(_call(mcp_server, "delete_entity", entity_id=entity_id))
 
