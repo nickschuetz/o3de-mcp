@@ -440,6 +440,74 @@ List variable names in a persistent session (names only, not values).
 
 ---
 
+## Track View Tools
+
+Cinematic sequence authoring, over the reflected `azlmbr.legacy.trackview` API. A new
+sequence has no nodes; add a `Director` node before other node types. Track and keyframe
+authoring are not exposed.
+
+### list_sequences
+
+List the cinematic sequences in the current level. Returns a JSON array of
+`{name, start, end}`. No parameters.
+
+### create_sequence
+
+Create a modern Sequence Component sequence. An existing name is an error.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Sequence name (letter/digit first; letters, digits, spaces, `_`, `-`) |
+
+### delete_sequence
+
+Delete a sequence by name.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Sequence name |
+
+### get_sequence
+
+Describe a sequence: its time range and the node names at its root (empty until a
+`Director` is added).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Sequence name |
+
+### set_sequence_time_range
+
+Set the sequence play range in seconds.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Sequence name |
+| `start` | float | yes | Range start (seconds) |
+| `end` | float | yes | Range end (seconds), greater than start |
+
+### add_sequence_node
+
+Add a node to a sequence. Add a `Director` first; other types need one present.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Sequence name |
+| `node_type` | str | yes | `Director`, `Event`, `AzEntity`, `Component`, `CVar`, `Material`, `Group`, `Layer`, `Comment` |
+| `node_name` | str | yes | Name for the new node |
+
+### play_sequence
+
+Start playing a sequence in the editor.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | str | yes | Sequence name |
+
+### stop_sequence
+
+Stop the sequence currently playing. No parameters.
+
 ## Project Tools
 
 Wrap the O3DE CLI and CMake. Do not require a running editor.

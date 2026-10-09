@@ -40,6 +40,7 @@ from mcp.server import MCPServer
 
 from o3de_mcp.tools.editor import register_editor_tools
 from o3de_mcp.tools.introspection import register_introspection_tools
+from o3de_mcp.tools.trackview import register_trackview_tools
 
 SURFACE_PATH = Path(__file__).parent / "data" / "azlmbr_surface.json"
 
@@ -76,6 +77,11 @@ class Anything(dict):
 
     def __int__(self) -> int:
         return 123
+
+    def __index__(self) -> int:
+        # A reflected count (e.g. get_num_sequences) returns this; 1 lets a
+        # ``range(count)`` loop run once so the loop body is validated too.
+        return 1
 
     def __float__(self) -> float:
         return 1.0
@@ -244,11 +250,21 @@ def _all_tools() -> list[str]:
     mcp = MCPServer("names")
     register_editor_tools(mcp)
     register_introspection_tools(mcp)
+    register_trackview_tools(mcp)
     return sorted(t.name for t in mcp._tool_manager.list_tools())
 
 
 # Representative arguments. Values only need to pass the tools' own validators.
 SAMPLE_ARGS: dict[str, dict] = {
+    # Track View
+    "list_sequences": {},
+    "create_sequence": {"name": "Seq1"},
+    "delete_sequence": {"name": "Seq1"},
+    "get_sequence": {"name": "Seq1"},
+    "set_sequence_time_range": {"name": "Seq1", "start": 0, "end": 5},
+    "add_sequence_node": {"name": "Seq1", "node_type": "Director", "node_name": "Dir1"},
+    "play_sequence": {"name": "Seq1"},
+    "stop_sequence": {},
     "add_component": {"entity_id": "123", "component_type": "Mesh"},
     "assign_asset": {
         "entity_id": "123",
@@ -354,6 +370,7 @@ def generate_script(tool: str, arguments: dict, tmp_path: Path) -> str | None:
     mcp = MCPServer("scripts")
     register_editor_tools(mcp)
     register_introspection_tools(mcp)
+    register_trackview_tools(mcp)
     env = {"O3DE_CAPTURE_WAIT": "0", "O3DE_PROJECT_PATH": str(tmp_path)}
     with (
         patch("o3de_mcp.tools.editor._pool") as pool,

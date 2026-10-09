@@ -16,6 +16,7 @@ from o3de_mcp.tools.capabilities import register_capabilities_tools
 from o3de_mcp.tools.editor import register_editor_tools
 from o3de_mcp.tools.introspection import register_introspection_tools
 from o3de_mcp.tools.project import register_project_tools
+from o3de_mcp.tools.trackview import register_trackview_tools
 
 try:
     __version__ = version("o3de-mcp")
@@ -32,6 +33,7 @@ register_capabilities_tools(mcp)
 register_editor_tools(mcp)
 register_introspection_tools(mcp)
 register_project_tools(mcp)
+register_trackview_tools(mcp)
 register_assets_tools(mcp)
 
 

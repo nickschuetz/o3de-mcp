@@ -49,6 +49,9 @@ def mcp_server() -> MCPServer:
     register_introspection_tools(mcp)
     register_project_tools(mcp)
     register_assets_tools(mcp)
+    from o3de_mcp.tools.trackview import register_trackview_tools
+
+    register_trackview_tools(mcp)
     return mcp
 
 
@@ -581,6 +584,86 @@ class TestLiveNativeTools:
             )
         assert parsed.get("event_count", 0) > 0, parsed
         assert parsed.get("events"), parsed
+
+
+class TestLiveTrackView:
+    """Track View cinematic sequences, exercised against a real editor. These run
+    the reflected azlmbr.legacy.trackview workflow end to end and clean up after."""
+
+    def test_sequence_lifecycle(self, mcp_server: MCPServer) -> None:
+        seq = "McpLiveTvSeq"
+        # Make sure a stale run did not leave it behind.
+        _run(_call(mcp_server, "delete_sequence", name=seq))
+
+        created = json.loads(_run(_call(mcp_server, "create_sequence", name=seq)))
+        assert created.get("created") == seq, created
+
+        try:
+            names = {
+                s["name"]
+                for s in json.loads(_run(_call(mcp_server, "list_sequences")))["sequences"]
+            }
+            assert seq in names, names
+
+            # A fresh sequence has no nodes until a Director is added.
+            info = json.loads(_run(_call(mcp_server, "get_sequence", name=seq)))
+            assert info["node_count"] == 0, info
+
+            rng = json.loads(
+                _run(_call(mcp_server, "set_sequence_time_range", name=seq, start=0.0, end=4.0))
+            )
+            assert rng.get("end") == 4.0, rng
+
+            d = json.loads(
+                _run(
+                    _call(
+                        mcp_server,
+                        "add_sequence_node",
+                        name=seq,
+                        node_type="Director",
+                        node_name="Dir1",
+                    )
+                )
+            )
+            assert d.get("added_node") == "Dir1", d
+            e = json.loads(
+                _run(
+                    _call(
+                        mcp_server,
+                        "add_sequence_node",
+                        name=seq,
+                        node_type="Event",
+                        node_name="Events1",
+                    )
+                )
+            )
+            assert "error" not in e, e
+
+            info = json.loads(_run(_call(mcp_server, "get_sequence", name=seq)))
+            assert info["start"] == 0.0 and info["end"] == 4.0, info
+            assert set(info["nodes"]) >= {"Dir1", "Events1"}, info
+
+            # Playback starts and stops without error or crashing the editor.
+            assert (
+                json.loads(_run(_call(mcp_server, "play_sequence", name=seq))).get("playing") == seq
+            )
+            assert json.loads(_run(_call(mcp_server, "stop_sequence"))).get("stopped") is True
+        finally:
+            deleted = json.loads(_run(_call(mcp_server, "delete_sequence", name=seq)))
+            assert deleted.get("deleted") == seq, deleted
+
+        names = {
+            s["name"] for s in json.loads(_run(_call(mcp_server, "list_sequences")))["sequences"]
+        }
+        assert seq not in names
+
+    def test_add_node_rejects_an_unknown_type_before_sending(self, mcp_server: MCPServer) -> None:
+        with pytest.raises(Exception):
+            _run(
+                _call(
+                    mcp_server, "add_sequence_node", name="X", node_type="Nonsense", node_name="n"
+                )
+            )
 
 
 class TestLiveEdgeCases:

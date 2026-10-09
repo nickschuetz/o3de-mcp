@@ -27,7 +27,7 @@ Made a mistake?                  → undo / redo
 
 ## Tool Surface
 
-67 tools in five groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
+75 tools in six groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
 
 | Group | Count | Editor needed | What it covers |
 |-------|-------|---------------|----------------|
@@ -36,6 +36,7 @@ Made a mistake?                  → undo / redo
 | Introspection | 3 | Partly | EBus schema (static stubs and live), RenderDoc capture |
 | Project | 17 | No | Engines, projects, gems, templates, builds (blocking and background), export |
 | Assets | 5 | No | Asset Processor status, refresh/wait, log tailing |
+| Track View | 8 | Yes | Cinematic sequences: create/list/describe/delete, time range, add nodes, play/stop |
 
 Less obvious tools worth knowing:
 
