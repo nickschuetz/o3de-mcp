@@ -60,7 +60,7 @@ graph LR
     CAP --> UC
     ED -- "TCP :4600 (length-prefixed JSON)<br/>connect ≤5s · command ≤600s" --> AS
     AS -- "Python tools:<br/>forwards script" --> EPB
-    AS -. "native tools: get_scene_snapshot,<br/>get_entity_tree, validate_scene<br/>(no Python, works in secure mode)" .-> AS
+    AS -. "native tools (no Python, work in secure mode):<br/>get_scene_snapshot, get_entity_tree, get_entity,<br/>validate_scene, get_bus_schema,<br/>create_entity, set_transform, delete_entity" .-> AS
     INTRO -- "reads .pyi stubs" --> STUBS
     PR --> UO
     ASSET -- "reads logs" --> LOGS
