@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Testing
+
+- The azlmbr surface harness now checks that a tool's generated script calls each reflected function with the correct number of arguments, not just that the function exists. The reflection dump records each function's arity; a wrong-arity call now fails the surface test. This is the class of bug `create_level` shipped with (a six-argument engine function called with two) that the name-only check could not catch.
+
 ### Added
 
 - **Track View tools** (`tools/trackview.py`, 8 tools): `list_sequences`,
