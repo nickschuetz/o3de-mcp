@@ -177,6 +177,59 @@ class TestGetBusSchema:
 class TestGetBusSchemaLive:
     """Tests for the get_bus_schema_live MCP tool."""
 
+    def test_native_schema_wins_when_the_gem_answers(self) -> None:
+        """The AiCompanion gem's C++ get_bus_schema is tried before editor Python."""
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from mcp.server import MCPServer
+
+        from o3de_mcp.tools.introspection import register_introspection_tools
+
+        native = json.dumps(
+            {
+                "name": "PhysicsRequestBus",
+                "events": [
+                    {
+                        "name": "GetGravity",
+                        "call_type": "Broadcast",
+                        "returns": "Vector3",
+                        "args": [],
+                    }
+                ],
+            }
+        )
+
+        async def run() -> str:
+            mcp = MCPServer("test")
+            register_introspection_tools(mcp)
+            with (
+                patch("o3de_mcp.tools.editor._pool") as pool,
+                patch(
+                    "o3de_mcp.tools.editor._async_run_editor_script",
+                    new_callable=AsyncMock,
+                ) as run_script,
+            ):
+                pool.send_request = AsyncMock(return_value={"status": "ok", "output": native})
+                content = (
+                    await mcp.call_tool(
+                        "get_bus_schema_live",
+                        {"module": "physics", "bus": "PhysicsRequestBus"},
+                    )
+                ).content
+                assert run_script.await_count == 0
+                assert pool.send_request.call_args.kwargs["params"] == {
+                    "bus_name": "PhysicsRequestBus"
+                }
+                return content[0].text
+
+        parsed = json.loads(asyncio.run(run()))
+        assert parsed["source"] == "native"
+        assert parsed["bus"] == "PhysicsRequestBus"
+        assert parsed["event_count"] == 1
+        assert parsed["events"][0]["name"] == "GetGravity"
+
     def test_live_query_success(self) -> None:
         """When the editor returns live schema, it's returned directly."""
         import asyncio
@@ -194,10 +247,17 @@ class TestGetBusSchemaLive:
         async def run() -> str:
             mcp = MCPServer("test")
             register_introspection_tools(mcp)
-            with patch(
-                "o3de_mcp.tools.editor._async_run_editor_script",
-                new_callable=AsyncMock,
-                return_value=live_json,
+            with (
+                patch(
+                    "o3de_mcp.tools.introspection._native_bus_schema",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
+                patch(
+                    "o3de_mcp.tools.editor._async_run_editor_script",
+                    new_callable=AsyncMock,
+                    return_value=live_json,
+                ),
             ):
                 content = (
                     await mcp.call_tool(
@@ -230,10 +290,17 @@ class TestGetBusSchemaLive:
         async def run() -> str:
             mcp = MCPServer("test")
             register_introspection_tools(mcp)
-            with patch(
-                "o3de_mcp.tools.editor._async_run_editor_script",
-                new_callable=AsyncMock,
-                return_value=error_response,
+            with (
+                patch(
+                    "o3de_mcp.tools.introspection._native_bus_schema",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
+                patch(
+                    "o3de_mcp.tools.editor._async_run_editor_script",
+                    new_callable=AsyncMock,
+                    return_value=error_response,
+                ),
             ):
                 content = (
                     await mcp.call_tool(

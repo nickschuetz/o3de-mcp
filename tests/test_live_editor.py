@@ -424,6 +424,7 @@ class TestLiveIntrospection:
         parsed = json.loads(result)
         assert "source" in parsed
         assert parsed["source"] in (
+            "native",
             "live",
             "stub_fallback",
             "stub_fallback_failed",

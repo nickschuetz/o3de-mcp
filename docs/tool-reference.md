@@ -63,6 +63,11 @@ Query the running editor's BehaviorContext for a bus schema. Falls back to
 
 Returns JSON with a `source` field: `"live"` or `"stub_fallback"`.
 
+Tries the AiCompanion gem's native `get_bus_schema` request first (gem 0.4.0
+or later; includes argument names and tooltips, works in secure mode), then
+the editor-Python query, then the stub files. The `source` field says which
+answered: `native`, `live` or `stub_fallback`.
+
 ### capture_renderdoc_frame
 
 Trigger a RenderDoc frame capture in the O3DE editor. Sends the
@@ -96,6 +101,16 @@ RemoteConsole transport. Works in the gem's secure mode.
 ### get_entity_tree
 
 Entity hierarchy as a nested JSON tree, served natively by the gem. No parameters.
+
+### get_entity
+
+One entity's name, transform, parent and component list as JSON, served
+natively by the gem's C++ (`get_entity` request type, gem 0.4.0 or later).
+Works in secure mode. An unknown id returns `{"error": ...}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `entity_id` | str | yes | Entity id, `"1234"` or `"[1234]"` |
 
 ### validate_scene
 

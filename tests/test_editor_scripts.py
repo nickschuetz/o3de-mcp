@@ -275,6 +275,7 @@ SAMPLE_ARGS: dict[str, dict] = {
     },
     "get_cvar": {"name": "r_fog"},
     "get_entity_components": {"entity_id": "123"},
+    "get_entity": {"entity_id": "123"},
     "get_entity_tree": {},
     "get_scene_snapshot": {},
     "get_level_info": {},
@@ -311,7 +312,14 @@ SAMPLE_ARGS: dict[str, dict] = {
 # Tools that legitimately never send a script to the editor. The three snapshot
 # tools use the AiCompanion AgentServer's native request types instead.
 NO_SCRIPT_TOOLS = frozenset(
-    {"list_levels", "get_bus_schema", "get_scene_snapshot", "get_entity_tree", "validate_scene"}
+    {
+        "list_levels",
+        "get_bus_schema",
+        "get_scene_snapshot",
+        "get_entity_tree",
+        "get_entity",
+        "validate_scene",
+    }
 )
 
 # Scripts that run in the editor but touch no azlmbr symbol: the session tools keep
@@ -346,7 +354,15 @@ def generate_script(tool: str, arguments: dict, tmp_path: Path) -> str | None:
         patch.dict(os.environ, env),
     ):
         pool.send_script = AsyncMock(side_effect=_record)
-        pool.send_request = AsyncMock(return_value={"status": "ok", "output": "{}"})
+
+        # Native request types answer; get_bus_schema is refused so that
+        # get_bus_schema_live still exercises its editor-Python fallback here.
+        async def _native(request_type: str, **kwargs: object) -> dict:
+            if request_type == "get_bus_schema":
+                return {"status": "error", "code": "editor_error", "error": "Unknown request type"}
+            return {"status": "ok", "output": "{}"}
+
+        pool.send_request = AsyncMock(side_effect=_native)
         try:
             asyncio.run(mcp.call_tool(tool, arguments))
         except Exception as exc:  # the tool may reject the empty reply; the script was still sent
