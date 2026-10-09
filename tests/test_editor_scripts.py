@@ -96,6 +96,17 @@ class Anything(dict):
         return 123
 
 
+class _NamedEntity(Anything):
+    """An entity id stub that prints as the given text."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__()
+        object.__setattr__(self, "_text", text)
+
+    def __str__(self) -> str:
+        return object.__getattribute__(self, "_text")
+
+
 class MissingAttribute(AttributeError):
     """A module attribute the editor does not reflect.
 
@@ -418,6 +429,12 @@ def run_against_surface(
     script: str, surface: dict, project_root: str = "/stub", overrides: Overrides | None = None
 ) -> tuple[CallLog, str]:
     log = CallLog()
+    # The level holds entities whose ids print as "[123]" and "[456]", matching
+    # the sample ids, so the entity resolver (which looks ids up by text) finds them.
+    overrides = {
+        ("SearchBus", "SearchEntities"): [Anything(), _NamedEntity("[456]")],
+        **(overrides or {}),
+    }
     modules = build_stub_azlmbr(surface, log, project_root, overrides)
     out = io.StringIO()
     with patch.dict(sys.modules, modules), redirect_stdout(out):
@@ -558,7 +575,7 @@ class TestNoFalseSuccess:
         self, surface: dict, tmp_path: Path
     ) -> None:
         out = _run_tool(
-            "set_parent", surface, tmp_path, {("EditorEntityInfoRequestBus", "GetParent"): "[123]"}
+            "set_parent", surface, tmp_path, {("EditorEntityInfoRequestBus", "GetParent"): "[456]"}
         )
         assert out.startswith("Set parent of")
 
@@ -678,3 +695,12 @@ class TestSetTransformScale:
         out = _set_transform_script(surface, tmp_path, {"scale": [2, 2, 2]}, 3.0)
         parsed = json.loads(out)
         assert parsed["status"] == "error" and parsed["code"] == "set_transform_failed"
+
+
+def test_an_unknown_entity_id_is_entity_not_found(surface: dict, tmp_path: Path) -> None:
+    # The resolver finds ids by their text; with nothing in the level the tool
+    # reports entity_not_found instead of acting on a rebuilt (wrong) id.
+    out = _run_tool("get_transform", surface, tmp_path, {("SearchBus", "SearchEntities"): []})
+    parsed = json.loads(out)
+    assert parsed["status"] == "error" and parsed["code"] == "entity_not_found"
+    assert "123" in parsed["message"]
