@@ -37,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Anim graph wiring** (6 more animation tools, 17 in all): `add_anim_graph_transition`,
+  `set_anim_graph_transition`, `remove_anim_graph_transition` (state-machine transitions
+  with parameter, time, play-time, motion, state, tag and vector conditions),
+  `connect_anim_graph_ports` and `disconnect_anim_graph_ports` (blend-tree wiring), and
+  `set_anim_graph_node` (rename, move, enable, and reflected fields such as a motion node's
+  motion ids). A transition with no source must be requested with `wildcard=True`, so a
+  missing source cannot silently become a from-any-state transition. Verified live against
+  gem main (4b5298a), including a node nested under a blend tree.
 - **Anim graph authoring** (9 more animation tools, 11 in all): `create_anim_graph`,
   `remove_anim_graph`, `load_anim_graph`, `save_anim_graph`, `add_anim_graph_node`,
   `remove_anim_graph_node`, `set_anim_graph_entry_state`, `add_anim_graph_parameter`

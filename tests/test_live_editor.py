@@ -841,6 +841,201 @@ class TestLiveAnimGraphAuthoring:
             if save_dir.exists() and not any(save_dir.iterdir()):
                 save_dir.rmdir()
 
+    def test_transitions_and_conditions(self, mcp_server: MCPServer) -> None:
+        graph_id = self._create(mcp_server)
+        try:
+
+            def add_state(name: str) -> dict:
+                return self._tool(
+                    mcp_server,
+                    "add_anim_graph_node",
+                    anim_graph_id=graph_id,
+                    node_type="AnimGraphMotionNode",
+                    name=name,
+                )
+
+            idle, walk = add_state("Idle"), add_state("Walk")
+            self._tool(
+                mcp_server,
+                "add_anim_graph_parameter",
+                anim_graph_id=graph_id,
+                name="Speed",
+                parameter_type="Float",
+            )
+            go = self._tool(
+                mcp_server,
+                "add_anim_graph_transition",
+                anim_graph_id=graph_id,
+                source_node_id=idle["id"],
+                target_node_id=walk["id"],
+                blend_time=0.2,
+                conditions=[
+                    {
+                        "condition_type": "ParameterCondition",
+                        "attributes": {
+                            "parameterName": "Speed",
+                            "function": "greater",  # enum names are case-insensitive
+                            "testValue": 0.1,
+                        },
+                    }
+                ],
+            )
+            assert go.get("status") != "error", go
+            assert go["source_node_id"] == idle["id"] and go["target_node_id"] == walk["id"], go
+            assert math.isclose(go["blend_time"], 0.2, abs_tol=1e-4), go
+            assert [c["type"] for c in go["conditions"]] == ["AnimGraphParameterCondition"], go
+
+            edited = self._tool(
+                mcp_server,
+                "set_anim_graph_transition",
+                anim_graph_id=graph_id,
+                transition_id=go["id"],
+                blend_time=0.5,
+                priority=2,
+            )
+            assert math.isclose(edited["blend_time"], 0.5, abs_tol=1e-4), edited
+
+            anywhere = self._tool(
+                mcp_server,
+                "add_anim_graph_transition",
+                anim_graph_id=graph_id,
+                target_node_id=idle["id"],
+                wildcard=True,
+            )
+            assert anywhere.get("wildcard") is True, anywhere
+
+            bad = self._tool(
+                mcp_server,
+                "add_anim_graph_transition",
+                anim_graph_id=graph_id,
+                source_node_id=walk["id"],
+                target_node_id=idle["id"],
+                conditions=[
+                    {"condition_type": "ParameterCondition", "attributes": {"noSuchField": 1}}
+                ],
+            )
+            assert bad["status"] == "error" and bad["code"] == "validation_failed", bad
+            assert "unsupported condition attribute" in bad["message"], bad
+
+            removed = self._tool(
+                mcp_server,
+                "remove_anim_graph_transition",
+                anim_graph_id=graph_id,
+                transition_id=anywhere["id"],
+            )
+            assert removed == {"removed": anywhere["id"]}, removed
+            graph = self._tool(mcp_server, "get_anim_graph", anim_graph_id=graph_id)
+            assert [t["id"] for t in graph["transitions"]] == [go["id"]], graph["transitions"]
+        finally:
+            self._tool(mcp_server, "remove_anim_graph", anim_graph_id=graph_id)
+
+    def test_blend_tree_ports_and_node_edits(self, mcp_server: MCPServer) -> None:
+        graph_id = self._create(mcp_server)
+        try:
+            tree = self._tool(
+                mcp_server,
+                "add_anim_graph_node",
+                anim_graph_id=graph_id,
+                node_type="BlendTree",
+                name="Locomotion",
+            )
+            assert tree.get("status") != "error", tree
+            # A node nested under the blend tree, not the root state machine.
+            motion = self._tool(
+                mcp_server,
+                "add_anim_graph_node",
+                anim_graph_id=graph_id,
+                node_type="AnimGraphMotionNode",
+                parent_id=tree["id"],
+                name="WalkClip",
+            )
+            assert motion.get("parent_id") == tree["id"], motion
+            graph = self._tool(mcp_server, "get_anim_graph", anim_graph_id=graph_id)
+            final = next(
+                (
+                    n
+                    for n in graph["nodes"]
+                    if n.get("parent_id") == tree["id"] and n["type"] == "BlendTreeFinalNode"
+                ),
+                None,
+            )
+            if final is None:
+                final = self._tool(
+                    mcp_server,
+                    "add_anim_graph_node",
+                    anim_graph_id=graph_id,
+                    node_type="BlendTreeFinalNode",
+                    parent_id=tree["id"],
+                )
+            port = self._tool(
+                mcp_server,
+                "connect_anim_graph_ports",
+                anim_graph_id=graph_id,
+                source_node_id=motion["id"],
+                source_port=0,
+                target_node_id=final["id"],
+                target_port=0,
+            )
+            assert port.get("status") != "error", port
+            again = self._tool(
+                mcp_server,
+                "connect_anim_graph_ports",
+                anim_graph_id=graph_id,
+                source_node_id=motion["id"],
+                source_port=0,
+                target_node_id=final["id"],
+                target_port=0,
+            )
+            assert again["status"] == "error" and again["code"] == "validation_failed", again
+            unknown = self._tool(
+                mcp_server,
+                "connect_anim_graph_ports",
+                anim_graph_id=graph_id,
+                source_node_id=motion["id"],
+                source_port="NoSuchPort",
+                target_node_id=final["id"],
+                target_port=0,
+            )
+            assert unknown["status"] == "error" and unknown["code"] == "validation_failed", unknown
+            freed = self._tool(
+                mcp_server,
+                "disconnect_anim_graph_ports",
+                anim_graph_id=graph_id,
+                target_node_id=final["id"],
+                target_port=0,
+            )
+            assert "removed" in freed, freed
+            empty = self._tool(
+                mcp_server,
+                "disconnect_anim_graph_ports",
+                anim_graph_id=graph_id,
+                target_node_id=final["id"],
+                target_port=0,
+            )
+            assert empty["status"] == "error" and empty["code"] == "not_found", empty
+
+            renamed = self._tool(
+                mcp_server,
+                "set_anim_graph_node",
+                anim_graph_id=graph_id,
+                node_id=motion["id"],
+                name="RunClip",
+                position=[40, 80],
+                attributes={"motionIds": ["run_cycle"]},
+            )
+            assert renamed.get("name") == "RunClip", renamed
+            assert renamed.get("motion_ids") == ["run_cycle"], renamed
+            refused = self._tool(
+                mcp_server,
+                "set_anim_graph_node",
+                anim_graph_id=graph_id,
+                node_id=motion["id"],
+                attributes={"noSuchField": 1},
+            )
+            assert refused["status"] == "error" and refused["code"] == "validation_failed", refused
+        finally:
+            self._tool(mcp_server, "remove_anim_graph", anim_graph_id=graph_id)
+
     def test_refusals(self, mcp_server: MCPServer, tmp_path: Path) -> None:
         graph_id = self._create(mcp_server)
         try:

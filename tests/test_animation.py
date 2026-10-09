@@ -19,6 +19,7 @@ from o3de_mcp.tools.animation import (
     _validate_file_name,
     _validate_node_id,
     _validate_parameter_value,
+    _validate_port,
     _validate_position,
     _validate_type_name,
     register_animation_tools,
@@ -349,3 +350,191 @@ class TestAuthoringErrors:
         assert parsed["status"] == "error"
         assert parsed["code"] == "validation_failed"
         assert "owned" in parsed["message"]
+
+
+class TestTransitions:
+    def test_needs_a_source_unless_wildcard(self) -> None:
+        assert "wildcard" in _raises(
+            "add_anim_graph_transition", {"anim_graph_id": 9, "target_node_id": "2"}
+        )
+
+    def test_a_wildcard_takes_no_source(self) -> None:
+        assert "wildcard" in _raises(
+            "add_anim_graph_transition",
+            {"anim_graph_id": 9, "target_node_id": "2", "source_node_id": "1", "wildcard": True},
+        )
+
+    def test_wildcard_sends_a_null_source(self) -> None:
+        assert _params(
+            "add_anim_graph_transition",
+            {"anim_graph_id": 9, "target_node_id": 2, "wildcard": True},
+        ) == {"anim_graph_id": 9, "target_node_id": "2", "source_node_id": None}
+
+    def test_full_transition_with_conditions(self) -> None:
+        conditions = [
+            {
+                "condition_type": "ParameterCondition",
+                "attributes": {"parameterName": "Speed", "function": "GREATER", "testValue": 0.1},
+            },
+            {
+                "condition_type": "TagCondition",
+                "attributes": {"function": "ALL", "tags": ["a", "b"]},
+            },
+            {"condition_type": "TimeCondition"},
+        ]
+        assert _params(
+            "add_anim_graph_transition",
+            {
+                "anim_graph_id": "9",
+                "source_node_id": 1,
+                "target_node_id": "2",
+                "blend_time": 0.25,
+                "priority": 3,
+                "disabled": False,
+                "sync_mode": 2,
+                "interpolation": 1,
+                "conditions": conditions,
+            },
+        ) == {
+            "anim_graph_id": 9,
+            "source_node_id": "1",
+            "target_node_id": "2",
+            "blend_time": 0.25,
+            "priority": 3,
+            "disabled": False,
+            "sync_mode": 2,
+            "interpolation": 1,
+            "conditions": conditions,
+        }
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("blend_time", -0.1),
+            ("blend_time", float("inf")),
+            ("priority", -1),
+            ("sync_mode", 3),
+            ("interpolation", 2),
+        ],
+    )
+    def test_rejects_bad_settings(self, field: str, value: object) -> None:
+        assert field in _raises(
+            "add_anim_graph_transition",
+            {"anim_graph_id": 9, "source_node_id": 1, "target_node_id": 2, field: value},
+        )
+
+    @pytest.mark.parametrize(
+        "conditions",
+        [
+            [],
+            [{"attributes": {}}],
+            [{"condition_type": "ParameterCondition", "extra": 1}],
+            [{"condition_type": "ParameterCondition", "attributes": {"bad key": 1}}],
+            [{"condition_type": "ParameterCondition", "attributes": {"nested": {"a": 1}}}],
+            [{"condition_type": "ParameterCondition", "attributes": {"tags": [["x"]]}}],
+        ],
+    )
+    def test_rejects_malformed_conditions(self, conditions: list) -> None:
+        assert "condition" in _raises(
+            "add_anim_graph_transition",
+            {
+                "anim_graph_id": 9,
+                "source_node_id": 1,
+                "target_node_id": 2,
+                "conditions": conditions,
+            },
+        )
+
+    def test_set_needs_at_least_one_setting(self) -> None:
+        assert "at least one" in _raises(
+            "set_anim_graph_transition", {"anim_graph_id": 9, "transition_id": "5"}
+        )
+
+    def test_set_sends_only_the_given_settings(self) -> None:
+        assert _params(
+            "set_anim_graph_transition",
+            {"anim_graph_id": 9, "transition_id": 5, "blend_time": 0, "disabled": True},
+        ) == {"anim_graph_id": 9, "transition_id": "5", "blend_time": 0, "disabled": True}
+
+    def test_remove(self) -> None:
+        assert _params(
+            "remove_anim_graph_transition", {"anim_graph_id": 9, "transition_id": "5"}
+        ) == {"anim_graph_id": 9, "transition_id": "5"}
+
+
+class TestPortsAndNodeEdits:
+    def test_connect_by_index_and_by_name(self) -> None:
+        assert _params(
+            "connect_anim_graph_ports",
+            {
+                "anim_graph_id": 9,
+                "source_node_id": "1",
+                "source_port": 0,
+                "target_node_id": 2,
+                "target_port": "Pose 1",
+            },
+        ) == {
+            "anim_graph_id": 9,
+            "source_node_id": "1",
+            "source_port": 0,
+            "target_node_id": "2",
+            "target_port": "Pose 1",
+        }
+
+    def test_port_validator_rejects_a_bool(self) -> None:
+        # At the tool boundary the MCP layer coerces a JSON true to 1 for an
+        # int | str parameter, like any other integer argument; the validator
+        # itself still refuses a bool when called directly.
+        with pytest.raises(ValueError):
+            _validate_port(True, "source_port")
+
+    @pytest.mark.parametrize("port", [-1, ""])
+    def test_connect_rejects_bad_ports(self, port: object) -> None:
+        with pytest.raises(Exception):
+            asyncio.run(
+                _call(
+                    "connect_anim_graph_ports",
+                    {
+                        "anim_graph_id": 9,
+                        "source_node_id": "1",
+                        "source_port": port,
+                        "target_node_id": "2",
+                        "target_port": 0,
+                    },
+                    {"status": "ok", "output": "{}"},
+                )
+            )
+
+    def test_disconnect(self) -> None:
+        assert _params(
+            "disconnect_anim_graph_ports",
+            {"anim_graph_id": 9, "target_node_id": "2", "target_port": 1},
+        ) == {"anim_graph_id": 9, "target_node_id": "2", "target_port": 1}
+
+    def test_set_node_needs_a_change(self) -> None:
+        assert "at least one" in _raises("set_anim_graph_node", {"anim_graph_id": 9, "node_id": 3})
+
+    def test_set_node_with_every_change(self) -> None:
+        assert _params(
+            "set_anim_graph_node",
+            {
+                "anim_graph_id": 9,
+                "node_id": 3,
+                "name": "Run",
+                "position": [10, 20],
+                "enabled": False,
+                "attributes": {"motionIds": ["run_motion"]},
+            },
+        ) == {
+            "anim_graph_id": 9,
+            "node_id": "3",
+            "name": "Run",
+            "position": [10, 20],
+            "enabled": False,
+            "attributes": {"motionIds": ["run_motion"]},
+        }
+
+    def test_set_node_rejects_empty_attributes(self) -> None:
+        assert "attributes" in _raises(
+            "set_anim_graph_node", {"anim_graph_id": 9, "node_id": 3, "attributes": {}}
+        )
