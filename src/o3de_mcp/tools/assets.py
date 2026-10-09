@@ -91,6 +91,30 @@ def _read_log_tail(log_path: Path, lines: int = 50, filter_pattern: str | None =
     return all_lines[-lines:] if lines > 0 else all_lines
 
 
+# How long a "missing" status is taken at face value right after a write before
+# wait_for_asset asks the job list why: a failed build also answers "missing".
+_MISSING_GRACE_SECONDS = 3.0
+
+
+def _validate_asset_path(path: str, label: str = "path") -> str:
+    path = path.strip()
+    if not path:
+        raise ValueError(f"{label} cannot be empty.")
+    if len(path.encode("utf-8")) > 1024:
+        raise ValueError(f"{label} is too long (max 1024 bytes).")
+    if any(ord(ch) < 32 for ch in path):
+        raise ValueError(f"{label} must not contain control characters.")
+    return path
+
+
+def _parse(text: str) -> dict | None:
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def register_assets_tools(mcp: MCPServer) -> None:
     """Register asset processor and log tools with the MCP server."""
 
@@ -248,3 +272,150 @@ def register_assets_tools(mcp: MCPServer) -> None:
         return json.dumps(
             {"errors": errors, "count": len(errors), "log_name": log_name, "path": str(log_path)}
         )
+
+    # --- Asset readiness (native AiCompanion requests, gem 0.6.0+) ---
+
+    from o3de_mcp.tools.editor import _native_request
+
+    @mcp.tool()
+    async def get_asset_status(path: str, flush_io: bool = False) -> str:
+        """Ask the Asset Processor, through the editor, for one asset's build status.
+
+        Returns ``{"path", "status", "connected"}`` with ``status`` one of
+        ``unknown``, ``missing``, ``queued``, ``compiling``, ``compiled`` or
+        ``failed`` (plus ``query_path`` when the gem rewrote the path). The query
+        also escalates the asset in the build queue. A source whose build failed
+        has no products and answers ``missing``; use ``get_asset_jobs`` or
+        ``wait_for_asset`` to tell that apart from a file not registered yet.
+        Needs the AiCompanion gem 0.6.0+; works in secure mode.
+
+        Args:
+            path: A source or product path, relative to the project, or a full path.
+            flush_io: Flush the file monitor first. Use right after writing the file.
+        """
+        return await _native_request(
+            "get_asset_status",
+            {"path": _validate_asset_path(path), "flush_io": bool(flush_io)},
+        )
+
+    @mcp.tool()
+    async def get_asset_jobs(
+        source_path: str, escalate: bool = False, include_logs: bool = False
+    ) -> str:
+        """List the Asset Processor jobs for one source file, with failure logs.
+
+        Returns ``{"source_path", "jobs": [{"job_key", "platform", "builder",
+        "status", "error_count", "warning_count", "job_run_key", "source_file",
+        "watch_folder", "log"?, "truncated"?}]}`` with ``status`` one of
+        ``queued``, ``in_progress``, ``failed``, ``completed`` or ``missing``. A
+        source the Asset Processor has not registered answers the error code
+        ``engine_error``. Needs the AiCompanion gem 0.6.0+; works in secure mode.
+
+        Args:
+            source_path: The source file, relative to the project or a full path.
+            escalate: Move the file's queued jobs to the front of the queue.
+            include_logs: Attach each failed job's log (cut at 64 KB).
+        """
+        return await _native_request(
+            "get_asset_jobs",
+            {
+                "source_path": _validate_asset_path(source_path, "source_path"),
+                "escalate": bool(escalate),
+                "include_logs": bool(include_logs),
+            },
+        )
+
+    @mcp.tool()
+    async def get_asset_processor_connection() -> str:
+        """Report whether the editor is connected to the Asset Processor.
+
+        Returns ``{"connected", "ping_ms"}``. Unlike ``get_asset_processor_status``,
+        which checks for the process on this machine without the editor, this asks
+        the editor itself. Needs the AiCompanion gem 0.6.0+.
+        """
+        return await _native_request("get_asset_processor_status")
+
+    @mcp.tool()
+    async def wait_for_asset(
+        path: str,
+        timeout: float = 120,
+        just_written: bool = False,
+        source_path: str | None = None,
+        poll_interval: float = 1.0,
+    ) -> str:
+        """Wait until one asset is built, or report why it failed.
+
+        Polls ``get_asset_status``. ``compiled`` returns ``{"path", "status":
+        "compiled", "ready": true, "elapsed"}``. A failed build returns the error
+        ``asset_build_failed`` with the failed jobs and their logs. A source whose
+        build failed answers ``missing``, just like one the Asset Processor has
+        not seen yet, so after a short grace period a ``missing`` status is
+        checked against ``get_asset_jobs``. When ``timeout`` runs out the result
+        is ``{"ready": false, "status": <last status>}``, not an error. Needs the
+        AiCompanion gem 0.6.0+.
+
+        Args:
+            path: The asset to wait for: its source path (best, since the job
+                check needs the source) or a product path.
+            timeout: Seconds to wait (default 120, max 3600).
+            just_written: True right after writing the file, so the first query
+                flushes the file monitor.
+            source_path: The source file to check for failed jobs, when ``path``
+                is a product path.
+            poll_interval: Seconds between polls (0.1 to 10, default 1).
+        """
+        path = _validate_asset_path(path)
+        source = _validate_asset_path(source_path, "source_path") if source_path else path
+        if not 0 < timeout <= 3600:
+            raise ValueError("timeout must be more than 0 and at most 3600 seconds.")
+        if not 0.1 <= poll_interval <= 10:
+            raise ValueError("poll_interval must be between 0.1 and 10 seconds.")
+
+        start = time.monotonic()
+        status = "unknown"
+        first = True
+        while True:
+            reply = await _native_request(
+                "get_asset_status", {"path": path, "flush_io": bool(just_written and first)}
+            )
+            first = False
+            parsed = _parse(reply)
+            if parsed is None or parsed.get("status") == "error":
+                return reply  # not connected, bad path, or an older gem
+            status = str(parsed.get("status", "unknown"))
+            elapsed = round(time.monotonic() - start, 2)
+            if status == "compiled":
+                return json.dumps(
+                    {"path": path, "status": status, "ready": True, "elapsed": elapsed}
+                )
+            if status == "failed" or (
+                status in ("missing", "unknown") and elapsed >= _MISSING_GRACE_SECONDS
+            ):
+                jobs = _parse(
+                    await _native_request(
+                        "get_asset_jobs", {"source_path": source, "include_logs": True}
+                    )
+                )
+                job_list = (jobs or {}).get("jobs") or []
+                failed = [j for j in job_list if j.get("status") == "failed"]
+                if failed:
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "code": "asset_build_failed",
+                            "message": f"{len(failed)} job(s) failed building {source}",
+                            "path": path,
+                            "jobs": failed,
+                        }
+                    )
+            if time.monotonic() - start + poll_interval > timeout:
+                return json.dumps(
+                    {
+                        "path": path,
+                        "status": status,
+                        "ready": False,
+                        "elapsed": round(time.monotonic() - start, 2),
+                        "message": f"{path} was not built within {timeout:g}s",
+                    }
+                )
+            await asyncio.sleep(poll_interval)

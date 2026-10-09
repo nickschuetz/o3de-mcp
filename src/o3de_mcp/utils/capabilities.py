@@ -50,6 +50,11 @@ _EDITOR_TOOLS = frozenset(
         "connect_anim_graph_ports",
         "disconnect_anim_graph_ports",
         "set_anim_graph_node",
+        # Asset readiness, native AiCompanion request types (gem 0.6.0+)
+        "get_asset_status",
+        "get_asset_jobs",
+        "get_asset_processor_connection",
+        "wait_for_asset",
         "run_editor_python",
         "list_entities",
         "create_entity",

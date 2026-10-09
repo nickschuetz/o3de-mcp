@@ -78,6 +78,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-asset readiness** (4 asset tools over the AiCompanion gem's native request
+  types, gem 0.6.0+): `get_asset_status`, `get_asset_jobs` (with failed jobs' logs),
+  `get_asset_processor_connection` and `wait_for_asset`. `wait_for_assets` only waits
+  for an Asset Processor process to exit, which never happens with the GUI Asset
+  Processor beside the editor; `wait_for_asset` waits for one asset. A source whose
+  build failed answers `missing`, exactly like one the Asset Processor has not
+  registered yet (observed live), so after a short grace period `wait_for_asset` asks
+  the job list: a failed job ends the wait with `asset_build_failed` and its log.
 - **Anim graph wiring** (6 more animation tools, 17 in all): `add_anim_graph_transition`,
   `set_anim_graph_transition`, `remove_anim_graph_transition` (state-machine transitions
   with parameter, time, play-time, motion, state, tag and vector conditions),

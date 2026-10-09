@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -265,3 +265,189 @@ class TestGetLogErrors:
         parsed = json.loads(result)
         assert parsed["status"] == "error"
         assert parsed["code"] == "log_not_found"
+
+
+# --- Asset readiness (native AiCompanion request types) ---
+
+
+def _ok(payload: dict) -> dict:
+    return {"status": "ok", "output": json.dumps(payload)}
+
+
+async def _call_with_gem(
+    tool: str, arguments: dict, statuses: list[dict], jobs: dict | None = None
+):
+    """Run an asset tool against a fake gem; statuses answer get_asset_status in turn."""
+    from mcp.server import MCPServer
+
+    sent: list[tuple[str, dict]] = []
+    replies = list(statuses)
+
+    async def _request(request_type: str, params: dict | None = None, **kwargs: object) -> dict:
+        sent.append((request_type, params or {}))
+        if request_type == "get_asset_status":
+            return replies.pop(0) if len(replies) > 1 else replies[0]
+        if request_type == "get_asset_jobs":
+            return jobs or _ok({"source_path": "x", "jobs": []})
+        return _ok({"connected": True, "ping_ms": 0.2})
+
+    mcp = MCPServer("test")
+    register_assets_tools(mcp)
+    with patch("o3de_mcp.tools.editor._pool") as pool:
+        pool.send_request = AsyncMock(side_effect=_request)
+        text = (await mcp.call_tool(tool, arguments)).content[0].text
+    return text, sent
+
+
+def _status(value: str) -> dict:
+    return _ok({"path": "Assets/a.fbx", "status": value, "connected": True})
+
+
+class TestAssetReadinessWrappers:
+    def test_get_asset_status_sends_the_path_and_flag(self) -> None:
+        text, sent = asyncio.run(
+            _call_with_gem(
+                "get_asset_status",
+                {"path": " Assets/a.fbx ", "flush_io": True},
+                [_status("queued")],
+            )
+        )
+        assert sent == [("get_asset_status", {"path": "Assets/a.fbx", "flush_io": True})]
+        assert json.loads(text)["status"] == "queued"
+
+    def test_get_asset_jobs_sends_its_flags(self) -> None:
+        _, sent = asyncio.run(
+            _call_with_gem(
+                "get_asset_jobs",
+                {"source_path": "Assets/a.fbx", "include_logs": True},
+                [_status("x")],
+            )
+        )
+        assert sent == [
+            (
+                "get_asset_jobs",
+                {"source_path": "Assets/a.fbx", "escalate": False, "include_logs": True},
+            )
+        ]
+
+    def test_connection_uses_the_gem_status_request(self) -> None:
+        text, sent = asyncio.run(
+            _call_with_gem("get_asset_processor_connection", {}, [_status("x")])
+        )
+        assert sent[0][0] == "get_asset_processor_status"
+        assert json.loads(text) == {"connected": True, "ping_ms": 0.2}
+
+    def test_rejects_an_empty_path(self) -> None:
+        with pytest.raises(Exception):
+            asyncio.run(_call_with_gem("get_asset_status", {"path": "  "}, [_status("x")]))
+
+
+class TestWaitForAsset:
+    ARGS = {"path": "Assets/a.fbx", "timeout": 2, "poll_interval": 0.1}
+
+    def test_compiled_returns_ready(self) -> None:
+        text, sent = asyncio.run(_call_with_gem("wait_for_asset", self.ARGS, [_status("compiled")]))
+        parsed = json.loads(text)
+        assert parsed["ready"] is True and parsed["status"] == "compiled"
+        assert sent[0][1]["flush_io"] is False
+
+    def test_just_written_flushes_only_the_first_poll(self) -> None:
+        _, sent = asyncio.run(
+            _call_with_gem(
+                "wait_for_asset",
+                {**self.ARGS, "just_written": True},
+                [_status("queued"), _status("compiled")],
+            )
+        )
+        flags = [p["flush_io"] for t, p in sent if t == "get_asset_status"]
+        assert flags == [True, False]
+
+    def test_waits_through_queued_and_compiling(self) -> None:
+        text, _ = asyncio.run(
+            _call_with_gem(
+                "wait_for_asset",
+                self.ARGS,
+                [_status("queued"), _status("compiling"), _status("compiled")],
+            )
+        )
+        assert json.loads(text)["ready"] is True
+
+    def test_a_failed_build_behind_missing_is_reported_with_logs(self) -> None:
+        failed_job = {
+            "job_key": "Scene compilation",
+            "status": "failed",
+            "error_count": 4,
+            "log": "boom",
+        }
+        with patch("o3de_mcp.tools.assets._MISSING_GRACE_SECONDS", 0.0):
+            text, sent = asyncio.run(
+                _call_with_gem(
+                    "wait_for_asset",
+                    self.ARGS,
+                    [_status("missing")],
+                    jobs=_ok({"source_path": "Assets/a.fbx", "jobs": [failed_job]}),
+                )
+            )
+        parsed = json.loads(text)
+        assert parsed["status"] == "error" and parsed["code"] == "asset_build_failed"
+        assert parsed["jobs"] == [failed_job]
+        assert ("get_asset_jobs", {"source_path": "Assets/a.fbx", "include_logs": True}) in sent
+
+    def test_a_status_of_failed_is_reported_too(self) -> None:
+        failed_job = {"job_key": "k", "status": "failed"}
+        text, _ = asyncio.run(
+            _call_with_gem(
+                "wait_for_asset",
+                self.ARGS,
+                [_status("failed")],
+                jobs=_ok({"source_path": "Assets/a.fbx", "jobs": [failed_job]}),
+            )
+        )
+        assert json.loads(text)["code"] == "asset_build_failed"
+
+    def test_not_registered_yet_keeps_waiting_until_timeout(self) -> None:
+        # get_asset_jobs answers engine_error for a file the AP has not seen.
+        with patch("o3de_mcp.tools.assets._MISSING_GRACE_SECONDS", 0.0):
+            text, _ = asyncio.run(
+                _call_with_gem(
+                    "wait_for_asset",
+                    {**self.ARGS, "timeout": 0.5},
+                    [_status("missing")],
+                    jobs={"status": "error", "code": "engine_error", "error": "no answer"},
+                )
+            )
+        parsed = json.loads(text)
+        assert parsed["ready"] is False and parsed["status"] == "missing"
+
+    def test_source_path_is_used_for_the_job_check(self) -> None:
+        with patch("o3de_mcp.tools.assets._MISSING_GRACE_SECONDS", 0.0):
+            _, sent = asyncio.run(
+                _call_with_gem(
+                    "wait_for_asset",
+                    {
+                        **self.ARGS,
+                        "timeout": 0.3,
+                        "path": "a.fbx.azmodel",
+                        "source_path": "Assets/a.fbx",
+                    },
+                    [_status("missing")],
+                )
+            )
+        assert ("get_asset_jobs", {"source_path": "Assets/a.fbx", "include_logs": True}) in sent
+
+    def test_a_gem_error_is_passed_through(self) -> None:
+        unavailable = {"status": "error", "code": "unavailable", "error": "not connected to the AP"}
+        text, _ = asyncio.run(_call_with_gem("wait_for_asset", self.ARGS, [unavailable]))
+        parsed = json.loads(text)
+        assert parsed["status"] == "error" and parsed["code"] == "unavailable"
+
+    @pytest.mark.parametrize(
+        "arguments", [{"timeout": 0}, {"timeout": 4000}, {"poll_interval": 0.01}]
+    )
+    def test_rejects_bad_timing(self, arguments: dict) -> None:
+        with pytest.raises(Exception):
+            asyncio.run(
+                _call_with_gem(
+                    "wait_for_asset", {"path": "Assets/a.fbx", **arguments}, [_status("x")]
+                )
+            )

@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. 92 tools across seven categories:
+An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. 96 tools across seven categories:
 - **Capabilities tools** (`src/o3de_mcp/tools/capabilities.py`, 1 tool) — runtime detection of editor connectivity and CLI availability. Call `get_capabilities()` first to know what's available.
 - **Editor tools** (`src/o3de_mcp/tools/editor.py`, 41 tools): send Python scripts to a running O3DE Editor over TCP port 4600. Covers entities, components, transforms, prefabs, levels, viewport/camera, console and CVARs, game mode, undo/redo, and persistent scripting sessions. Requires the AiCompanion and EditorPythonBindings gems active in the editor. Four of the tools (`get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene`) use the AgentServer's native C++ request types instead of sending Python. `get_bus_schema_live`, `create_entity`, `set_transform` and `delete_entity` try their native request types first (`_native_bus_schema` in `tools/introspection.py`, `_native_mutation` in `tools/editor.py`) and fall back to editor Python when the gem answers `unknown_request_type` (too old to serve them) or the transport is the legacy RemoteConsole; a native refusal (validation, missing entity) is returned as an error, never retried through Python. `set_transform` uses editor Python directly for a rotation near a gimbal pole and refuses a non-uniform scale (a Transform's scale is uniform), and `get_bus_schema_live` falls back on any native failure, including an unknown bus. Fast-fails when the editor is unreachable.
 - **Introspection tools** (`src/o3de_mcp/tools/introspection.py`, 3 tools) — EBus schema discovery (static stub parsing and live query) plus RenderDoc frame capture.
 - **Project tools** (`src/o3de_mcp/tools/project.py`, 17 tools) — wrap the O3DE CLI (`scripts/o3de.sh` / `o3de.bat`) and CMake for project creation, gem management, engine registration, builds (blocking and background), and export.
-- **Asset tools** (`src/o3de_mcp/tools/assets.py`, 5 tools) — Asset Processor status, asset refresh/wait, and log tailing.
+- **Asset tools** (`src/o3de_mcp/tools/assets.py`, 9 tools): Asset Processor status, asset refresh/wait and log tailing without the editor, plus per-asset readiness through the AiCompanion gem's native request types (gem 0.6.0+): `get_asset_status`, `get_asset_jobs` (with failure logs), `get_asset_processor_connection` and `wait_for_asset`, which tells a failed build from a file not registered yet.
 - **Track View tools** (`src/o3de_mcp/tools/trackview.py`, 8 tools): cinematic sequence authoring: create/list/describe/delete sequences, set time range, add nodes (Director, Event, entity, component), and play/stop. Editor-Python over `azlmbr.legacy.trackview`; no gem request type. Track and keyframe authoring are intentionally not exposed (the reflected API's per-node parameter-type strings and record-only key workflow are not reliable to drive).
 - **Animation tools** (`src/o3de_mcp/tools/animation.py`, 17 tools): EMotion FX anim graph reads (`list_anim_graphs`, `get_anim_graph`) and authoring (create/remove/load/save a graph, add/edit/remove nodes, set the entry state, add/remove parameters, add/edit/remove transitions with conditions, connect/disconnect blend-tree ports) over the AiCompanion gem's native C++ request types (gem main or 0.6.0+, plus the EMotionFX gem). Native only, no editor-Python fallback; work in secure mode. Writes refuse asset- or runtime-owned graphs, and each is an Animation Editor undo step, not one the `undo` tool reverts.
 
@@ -56,7 +56,7 @@ src/o3de_mcp/
 │   ├── editor.py        # Editor automation tools (socket → AgentServer)
 │   ├── introspection.py # EBus schema discovery, RenderDoc capture
 │   ├── project.py       # Project/build management tools (subprocess → o3de CLI + cmake)
-│   ├── assets.py        # Asset Processor status, refresh/wait, log tailing
+│   ├── assets.py        # Asset Processor status, refresh/wait, logs, per-asset readiness
 │   ├── trackview.py     # Track View cinematic sequence tools (editor-Python)
 │   └── animation.py     # EMotion FX anim graph tools (native gem requests)
 └── utils/
@@ -91,7 +91,7 @@ src/o3de_mcp/
 ## Documentation
 
 - `AGENTS.md` — Agent-specific guide: token efficiency rules, quick reference, decision tree, error handling. Read this first when using the MCP tools as an AI agent.
-- `docs/tool-reference.md`: Compact parameter reference for all 92 tools.
+- `docs/tool-reference.md`: Compact parameter reference for all 96 tools.
 - `docs/architecture.md` — System diagram, editor protocol details, and communication flow.
 - `docs/releasing.md` covers the release checklist. The live editor suite (`scripts/live-sandbox.sh up|test|down`) is a required gate before tagging, and CI cannot run it.
 - `docs/recipes.md` — Composable game-dev patterns (scene setup, physics, lighting, scripting).

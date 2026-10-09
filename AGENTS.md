@@ -27,7 +27,7 @@ Made a mistake?                  → undo / redo
 
 ## Tool Surface
 
-92 tools in seven groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
+96 tools in seven groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
 
 | Group | Count | Editor needed | What it covers |
 |-------|-------|---------------|----------------|
@@ -35,7 +35,7 @@ Made a mistake?                  → undo / redo
 | Editor | 41 | Yes | Entities, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, undo/redo, persistent sessions |
 | Introspection | 3 | Partly | EBus schema (static stubs and live), RenderDoc capture |
 | Project | 17 | No | Engines, projects, gems, templates, builds (blocking and background), export |
-| Assets | 5 | No | Asset Processor status, refresh/wait, log tailing |
+| Assets | 9 | Partly | Asset Processor status, refresh/wait, log tailing (no editor); per-asset readiness and build failure logs (editor, gem 0.6.0+) |
 | Track View | 8 | Yes | Cinematic sequences: create/list/describe/delete, time range, add nodes, play/stop |
 | Animation | 17 | Yes | EMotion FX anim graphs: list and describe; author graphs, nodes, entry states, parameters, transitions with conditions, blend-tree connections (gem main or 0.6.0+) |
 
@@ -50,6 +50,10 @@ Less obvious tools worth knowing:
 - `tail_log` / `get_log_errors` — read editor and Asset Processor logs when something
   fails without a useful message.
 - `assign_asset` — set an asset-typed component property by path.
+- `wait_for_asset`: after writing or changing a source file, wait for that asset to
+  build before using it (pass `just_written=True` and the source path); a failed build
+  comes back as `asset_build_failed` with the job logs. `wait_for_assets` only waits for
+  an Asset Processor process to exit.
 - `get_scene_snapshot` / `get_entity_tree` / `get_entity` / `validate_scene` — scene state from
   the AiCompanion gem's C++ in one call; cheaper than `list_entities` plus per-entity queries.
 - `create_entity` / `set_transform` / `delete_entity`: try the gem's native request types
