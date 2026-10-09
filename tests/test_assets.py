@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from o3de_mcp.tools.assets import (
     _get_log_dir,
     _read_log_tail,
@@ -131,9 +133,11 @@ class TestWaitForAssets:
             assert parsed["completed"] is False
 
     def test_rejects_zero_timeout(self) -> None:
-        result = asyncio.run(_call_asset_tool("wait_for_assets", {"timeout": 0}))
-        parsed = json.loads(result)
-        assert "error" in parsed
+        # A non-positive timeout is invalid input, raised like every other
+        # tool-boundary validation rather than returned as a result.
+        with pytest.raises(Exception) as exc_info:
+            asyncio.run(_call_asset_tool("wait_for_assets", {"timeout": 0}))
+        assert "timeout must be positive" in str(exc_info.value.__cause__)
 
 
 # --- Tail log tests ---
@@ -185,7 +189,8 @@ class TestTailLog:
             )
         )
         parsed = json.loads(result)
-        assert "error" in parsed
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "log_not_found"
 
     def test_rejects_path_traversal(self, tmp_path: Path) -> None:
         result = asyncio.run(
@@ -195,7 +200,8 @@ class TestTailLog:
             )
         )
         parsed = json.loads(result)
-        assert "error" in parsed
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "invalid_log_name"
 
 
 # --- Get log errors tests ---
@@ -248,4 +254,5 @@ class TestGetLogErrors:
             )
         )
         parsed = json.loads(result)
-        assert "error" in parsed
+        assert parsed["status"] == "error"
+        assert parsed["code"] == "log_not_found"

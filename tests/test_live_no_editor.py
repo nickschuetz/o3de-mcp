@@ -217,7 +217,7 @@ class TestAssetTools:
             _call(mcp_server, "tail_log", log_name="Editor", lines=10, project_path=project_path)
         )
         parsed = json.loads(result)
-        if "error" not in parsed:
+        if parsed.get("status") != "error":
             assert "lines" in parsed
             assert isinstance(parsed["lines"], list)
             assert len(parsed["lines"]) <= 10
@@ -233,7 +233,7 @@ class TestAssetTools:
             )
         )
         parsed = json.loads(result)
-        if "error" not in parsed:
+        if parsed.get("status") != "error":
             assert "lines" in parsed
 
     def test_tail_log_with_filter(self, mcp_server: MCPServer, project_path: str) -> None:
@@ -248,7 +248,7 @@ class TestAssetTools:
             )
         )
         parsed = json.loads(result)
-        if "error" not in parsed:
+        if parsed.get("status") != "error":
             for line in parsed["lines"]:
                 assert re.search(r"INFO|WARNING|ERROR", line, re.IGNORECASE) or line == ""
 
@@ -263,7 +263,7 @@ class TestAssetTools:
             )
         )
         parsed = json.loads(result)
-        if "error" not in parsed:
+        if parsed.get("status") != "error":
             assert "errors" in parsed
             assert "count" in parsed
             assert isinstance(parsed["errors"], list)
@@ -275,14 +275,14 @@ class TestAssetTools:
             _call(mcp_server, "tail_log", log_name="../etc/passwd", project_path=project_path)
         )
         parsed = json.loads(result)
-        assert "error" in parsed
+        assert parsed["status"] == "error"
 
     def test_tail_log_nonexistent_log(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
             _call(mcp_server, "tail_log", log_name="NonExistentLog", project_path=project_path)
         )
         parsed = json.loads(result)
-        assert "error" in parsed
+        assert parsed["status"] == "error"
 
 
 class TestIntrospectionTools:
@@ -292,7 +292,7 @@ class TestIntrospectionTools:
             parsed = json.loads(result)
             if "modules" in parsed:
                 assert isinstance(parsed["modules"], list)
-            elif "error" in parsed:
+            elif parsed.get("status") == "error":
                 pass
         except json.JSONDecodeError:
             pytest.fail(f"Invalid JSON: {result}")

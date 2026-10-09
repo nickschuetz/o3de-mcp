@@ -12,6 +12,7 @@ import textwrap
 
 from mcp.server import MCPServer
 
+from o3de_mcp.utils.errors import error_dict, format_error
 from o3de_mcp.utils.introspection import get_bus_schema as _get_bus_schema
 
 
@@ -55,7 +56,7 @@ def register_introspection_tools(mcp: MCPServer) -> None:
         try:
             result = _get_bus_schema(module=module, bus=bus, project_path=project_path)
         except (LookupError, ValueError) as error:
-            return json.dumps({"error": str(error)}, indent=2)
+            return format_error("schema_not_found", str(error))
         return json.dumps(result, indent=2)
 
     @mcp.tool()
@@ -129,7 +130,7 @@ def register_introspection_tools(mcp: MCPServer) -> None:
         except (LookupError, ValueError) as error:
             return json.dumps(
                 {
-                    "error": str(error),
+                    **error_dict("bus_not_found", str(error)),
                     "source": "stub_fallback_failed",
                     "live_error": live_result[:500] if live_result else "No response",
                 },

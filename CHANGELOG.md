@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **One failure shape across every tool.** A tool that fails now always returns
+  `{"status": "error", "code": "<slug>", "message": "<text>"}`, so a caller can
+  detect any failure with a single `status == "error"` check and branch on the
+  stable `code`. Previously some tools (several Track View, duplicate/transform,
+  session and log tools) returned a bare `{"error": "<text>"}` with no `status`
+  or `code`, while others already used the structured shape. The envelope is now
+  defined once in `utils/errors.py` and shared by every tool module. Input that
+  is rejected at the tool boundary is raised as a tool error rather than returned
+  as the envelope; `wait_for_assets` keeps its progress result (`completed`,
+  `elapsed`), since a timed-out wait is a result, not a failure.
+
 ### Testing
 
 - The azlmbr surface harness now checks that a tool's generated script calls each reflected function with the correct number of arguments, not just that the function exists. The reflection dump records each function's arity; a wrong-arity call now fails the surface test. This is the class of bug `create_level` shipped with (a six-argument engine function called with two) that the name-only check could not catch.

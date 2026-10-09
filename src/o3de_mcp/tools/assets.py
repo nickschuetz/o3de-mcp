@@ -18,6 +18,7 @@ from pathlib import Path
 
 from mcp.server import MCPServer
 
+from o3de_mcp.utils.errors import format_error
 from o3de_mcp.utils.o3de import list_registered_projects
 
 
@@ -96,11 +97,16 @@ def register_assets_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def wait_for_assets(timeout: int = 300) -> str:
-        """Wait for the Asset Processor to finish processing (or until timeout)."""
+        """Wait for the Asset Processor to finish processing (or until timeout).
+
+        Returns a progress result ``{"completed": bool, "elapsed": seconds}``.
+        ``completed`` is ``True`` when the Asset Processor went idle, or ``False``
+        when it was still running when ``timeout`` elapsed, with a ``message``
+        noting the timeout. A not-yet-finished wait is a result, not a failure, so
+        this tool does not return the error envelope.
+        """
         if timeout <= 0:
-            return json.dumps(
-                {"completed": False, "elapsed": 0.0, "error": "timeout must be positive"}
-            )
+            raise ValueError("timeout must be positive.")
         start = time.monotonic()
         while time.monotonic() - start < timeout:
             running = await asyncio.to_thread(_is_asset_processor_running)
@@ -113,7 +119,7 @@ def register_assets_tools(mcp: MCPServer) -> None:
             {
                 "completed": False,
                 "elapsed": round(elapsed, 2),
-                "error": f"Asset Processor still running after {timeout}s",
+                "message": f"Asset Processor still running after {timeout}s",
             }
         )
 
@@ -122,12 +128,12 @@ def register_assets_tools(mcp: MCPServer) -> None:
         """Trigger an Asset Processor rescan for a project."""
         proj = _resolve_project_path(project_path)
         if proj is None:
-            return json.dumps({"status": "error", "message": "Could not resolve project path."})
+            return format_error("project_not_found", "Could not resolve project path.")
         from o3de_mcp.utils.o3de import find_o3de_engine_path
 
         engine = find_o3de_engine_path()
         if engine is None:
-            return json.dumps({"status": "error", "message": "O3DE engine not found."})
+            return format_error("engine_not_found", "O3DE engine not found.")
 
         ap_path = engine / "build" / "bin" / "profile" / "AssetProcessorBatch.exe"
         if not ap_path.exists():
@@ -139,12 +145,7 @@ def register_assets_tools(mcp: MCPServer) -> None:
                 ap_path = engine / "build" / "linux" / "bin" / "profile" / "AssetProcessorBatch"
 
         if not ap_path.exists():
-            return json.dumps(
-                {
-                    "status": "error",
-                    "message": f"Asset Processor batch not found at {ap_path}",
-                }
-            )
+            return format_error("ap_not_found", f"Asset Processor batch not found at {ap_path}")
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -160,18 +161,13 @@ def register_assets_tools(mcp: MCPServer) -> None:
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                return json.dumps({"status": "error", "message": "Asset refresh timed out (120s)."})
+                return format_error("timeout", "Asset refresh timed out (120s).")
             if proc.returncode == 0:
                 return json.dumps({"status": "ok", "message": "Asset refresh completed."})
             err_text = stderr.decode(errors="replace") if stderr else ""
-            return json.dumps(
-                {
-                    "status": "error",
-                    "message": f"Asset refresh failed: {err_text[:500]}",
-                }
-            )
+            return format_error("refresh_failed", f"Asset refresh failed: {err_text[:500]}")
         except OSError as e:
-            return json.dumps({"status": "error", "message": f"Failed to run AP: {e}"})
+            return format_error("ap_launch_failed", f"Failed to run AP: {e}")
 
     @mcp.tool()
     async def tail_log(
@@ -185,21 +181,21 @@ def register_assets_tools(mcp: MCPServer) -> None:
             log_name = log_name + ".log"
 
         if "/" in log_name or "\\" in log_name or ".." in log_name:
-            return json.dumps(
-                {"error": f"Invalid log name: {log_name!r}. No path separators allowed."}
+            return format_error(
+                "invalid_log_name", f"Invalid log name: {log_name!r}. No path separators allowed."
             )
 
         proj = _resolve_project_path(project_path)
         if proj is None:
-            return json.dumps({"error": "Could not resolve project path for log directory."})
+            return format_error(
+                "project_not_found", "Could not resolve project path for log directory."
+            )
 
         log_dir = _get_log_dir(proj)
         log_path = log_dir / log_name
 
         if not log_path.exists():
-            return json.dumps(
-                {"error": f"Log file not found: {log_path}", "log_name": log_name, "lines": []}
-            )
+            return format_error("log_not_found", f"Log file not found: {log_path}")
 
         tail = await asyncio.to_thread(_read_log_tail, log_path, lines=lines, filter_pattern=filter)
         return json.dumps(
@@ -217,19 +213,21 @@ def register_assets_tools(mcp: MCPServer) -> None:
             log_name = log_name + ".log"
 
         if "/" in log_name or "\\" in log_name or ".." in log_name:
-            return json.dumps(
-                {"error": f"Invalid log name: {log_name!r}. No path separators allowed."}
+            return format_error(
+                "invalid_log_name", f"Invalid log name: {log_name!r}. No path separators allowed."
             )
 
         proj = _resolve_project_path(project_path)
         if proj is None:
-            return json.dumps({"error": "Could not resolve project path for log directory."})
+            return format_error(
+                "project_not_found", "Could not resolve project path for log directory."
+            )
 
         log_dir = _get_log_dir(proj)
         log_path = log_dir / log_name
 
         if not log_path.exists():
-            return json.dumps({"error": f"Log file not found: {log_path}", "errors": []})
+            return format_error("log_not_found", f"Log file not found: {log_path}")
 
         tail = await asyncio.to_thread(_read_log_tail, log_path, lines=since_lines)
         error_pattern = re.compile(r"ERROR|AZ_Error|Error:|FATAL|AZ_Assert", re.IGNORECASE)

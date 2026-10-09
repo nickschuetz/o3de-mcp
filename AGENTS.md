@@ -192,6 +192,33 @@ Inputs are validated — these will be rejected:
 
 ## Error Handling
 
+Every tool reports failure the same way: a JSON object
+
+```json
+{"status": "error", "code": "<slug>", "message": "<human-readable text>"}
+```
+
+Detect any failure with a single check: `status == "error"`. Branch on the stable
+`code` slug (for example `connection_refused`, `timeout`, `no_level_open`,
+`log_not_found`, `duplicate_failed`); show the `message` to the user. A successful
+call never carries a top-level `status` of `"error"`; its payload is tool-specific
+(some successes use `status: "ok"` or `"manual_required"`).
+
+Three things fall outside this envelope by design:
+
+- **Invalid input** caught at the tool boundary (a malformed entity ID, an empty
+  name, a non-positive timeout) is raised as a tool error before any editor or
+  CLI work runs, rather than returned as the envelope.
+- **`wait_for_assets`** returns a progress result `{"completed": bool,
+  "elapsed": seconds}`. A wait that times out is a result (`completed: false`),
+  not a failure.
+- **Native read tools** (`get_entity`, `get_scene_snapshot`, `get_entity_tree`,
+  `validate_scene`) pass the AiCompanion gem's response through verbatim. A gem
+  refusal (unreflected request, validation) is converted to the envelope, but a
+  logical not-found the gem reports inside a successful response keeps the gem's
+  own shape (for example `get_entity` on a missing id returns
+  `{"entity_id": ..., "error": "No entity with id ..."}`).
+
 | Error | Likely Cause | Fix |
 |-------|-------------|-----|
 | "Could not connect to O3DE Editor" | Editor not running or AiCompanion gem not enabled | Start editor with the AiCompanion and EditorPythonBindings gems |

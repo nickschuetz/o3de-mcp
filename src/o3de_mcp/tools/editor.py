@@ -45,6 +45,8 @@ from pathlib import Path
 
 from mcp.server import MCPServer
 
+from o3de_mcp.utils.errors import format_error
+
 logger = logging.getLogger(__name__)
 
 # Hosts considered safe for plaintext communication
@@ -172,9 +174,9 @@ def _get_editor_port() -> int:
         return 4600
 
 
-def _format_error(code: str, message: str) -> str:
-    """Return a structured JSON error string."""
-    return json.dumps({"status": "error", "code": code, "message": message})
+# The one failure shape, defined once in utils.errors. Kept under the module's
+# existing private name so the call sites below stay unchanged.
+_format_error = format_error
 
 
 def _connection_error_response(exc: Exception, host: str, port: int, timeout: float) -> str:
@@ -1214,7 +1216,8 @@ def register_editor_tools(mcp: MCPServer) -> None:
                     eid = _cand
                     break
             if eid is None:
-                print(json.dumps({{'error': f'Entity {{_wanted}} not found'}}))
+                print(json.dumps({{'status': 'error', 'code': 'entity_not_found',
+                                   'message': f'Entity {{_wanted}} not found'}}))
             else:
                 # 'CloneEntity' on ToolsApplicationRequestBus is not reflected to Python in
                 # any O3DE version; the call returned None and this tool reported a
@@ -1225,11 +1228,13 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 )
                 if not hasattr(outcome, 'IsSuccess') or not outcome.IsSuccess():
                     err = outcome.GetError() if hasattr(outcome, 'GetError') else 'no outcome'
-                    print(json.dumps({{'error': f'Failed to duplicate {{eid}}: {{err}}'}}))
+                    print(json.dumps({{'status': 'error', 'code': 'duplicate_failed',
+                                       'message': f'Failed to duplicate {{eid}}: {{err}}'}}))
                 else:
                     new_ids = list(outcome.GetValue() or [])
                     if not new_ids:
-                        print(json.dumps({{'error': f'Duplicate of {{eid}} returned nothing'}}))
+                        print(json.dumps({{'status': 'error', 'code': 'duplicate_failed',
+                                           'message': f'Duplicate of {{eid}} returned nothing'}}))
                     else:
                         new_id = new_ids[0]
                         name = editor.EditorEntityInfoRequestBus(bus.Event, 'GetName', new_id)
@@ -1741,7 +1746,8 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
             tm = components.TransformBus(bus.Event, 'GetWorldTM', eid)
             if tm is None:
-                print(json.dumps({{'error': 'Could not get transform'}}))
+                print(json.dumps({{'status': 'error', 'code': 'transform_unavailable',
+                                   'message': 'Could not get transform'}}))
             else:
                 pos = tm.translation
                 rot = tm.rotation
@@ -2006,23 +2012,21 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 if len(projects) == 1:
                     proj = Path(projects[0]["path"])
                 elif not projects:
-                    return json.dumps(
-                        {"error": "No project path provided and no registered project found."}
+                    return _format_error(
+                        "project_not_found",
+                        "No project path provided and no registered project found.",
                     )
                 else:
-                    return json.dumps(
-                        {
-                            "error": (
-                                "Multiple projects registered. "
-                                "Pass project_path explicitly or set O3DE_PROJECT_PATH."
-                            )
-                        }
+                    return _format_error(
+                        "ambiguous_project",
+                        "Multiple projects registered. "
+                        "Pass project_path explicitly or set O3DE_PROJECT_PATH.",
                     )
 
         levels_dir = proj / "Levels"
         if not levels_dir.is_dir():
-            return json.dumps(
-                {"error": f"No Levels/ directory found at {levels_dir}", "levels": []}
+            return _format_error(
+                "levels_dir_not_found", f"No Levels/ directory found at {levels_dir}"
             )
 
         levels = []
@@ -2605,17 +2609,20 @@ def register_editor_tools(mcp: MCPServer) -> None:
             _script = _params['script']
 
             if not hasattr(__main__, '_o3de_sessions'):
-                print(json.dumps({{'error': 'No sessions exist. Call begin_session first.'}}))
+                print(json.dumps({{'status': 'error', 'code': 'no_sessions',
+                                   'message': 'No sessions exist. Call begin_session first.'}}))
             elif _sid not in __main__._o3de_sessions:
-                print(json.dumps(
-                    {{'error': f'Session {{_sid}} not found. Call begin_session first.'}}
-                ))
+                print(json.dumps({{
+                    'status': 'error', 'code': 'session_not_found',
+                    'message': f'Session {{_sid}} not found. Call begin_session first.'
+                }}))
             else:
                 _ns = __main__._o3de_sessions[_sid]
                 try:
                     exec(_script, _ns, _ns)
                 except Exception as e:
-                    print(json.dumps({{'error': str(e)}}))
+                    print(json.dumps({{'status': 'error', 'code': 'session_exec_error',
+                                       'message': str(e)}}))
         """)
         return await _async_run_editor_script(wrapper)
 
@@ -2654,7 +2661,8 @@ def register_editor_tools(mcp: MCPServer) -> None:
             _params = json.loads({params!r})
             _sid = _params['session_id']
             if not hasattr(__main__, '_o3de_sessions') or _sid not in __main__._o3de_sessions:
-                print(json.dumps({{'error': f'Session {{_sid}} not found.'}}))
+                print(json.dumps({{'status': 'error', 'code': 'session_not_found',
+                                   'message': f'Session {{_sid}} not found.'}}))
             else:
                 _ns = __main__._o3de_sessions[_sid]
                 _vars = [k for k in _ns.keys() if not k.startswith('__') and k != '__builtins__']

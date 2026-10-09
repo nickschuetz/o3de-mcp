@@ -128,7 +128,8 @@ def register_trackview_tools(mcp: MCPServer) -> None:
                 tv.new_sequence(_name, 1)  # 1 = SequenceComponent (modern)
                 print(json.dumps({{'created': _name}}))
             except Exception as e:
-                print(json.dumps({{'error': f'could not create sequence {{_name!r}}: {{e}}'}}))
+                print(json.dumps({{'status': 'error', 'code': 'create_failed',
+                                   'message': f'could not create sequence {{_name!r}}: {{e}}'}}))
         """)
         return await _async_run_editor_script(script)
 
@@ -150,7 +151,8 @@ def register_trackview_tools(mcp: MCPServer) -> None:
                 tv.delete_sequence(_name)
                 print(json.dumps({{'deleted': _name}}))
             except Exception as e:
-                print(json.dumps({{'error': f'could not delete sequence {{_name!r}}: {{e}}'}}))
+                print(json.dumps({{'status': 'error', 'code': 'delete_failed',
+                                   'message': f'could not delete sequence {{_name!r}}: {{e}}'}}))
         """)
         return await _async_run_editor_script(script)
 
@@ -174,7 +176,8 @@ def register_trackview_tools(mcp: MCPServer) -> None:
             try:
                 tv.set_current_sequence(_name)
             except Exception as e:
-                print(json.dumps({{'error': f'no sequence named {{_name!r}}: {{e}}'}}))
+                print(json.dumps({{'status': 'error', 'code': 'sequence_not_found',
+                                   'message': f'no sequence named {{_name!r}}: {{e}}'}}))
             else:
                 _info = {{'name': _name}}
                 try:
@@ -224,7 +227,8 @@ def register_trackview_tools(mcp: MCPServer) -> None:
                 tv.set_sequence_time_range(_p['name'], _p['start'], _p['end'])
                 print(json.dumps({{'name': _p['name'], 'start': _p['start'], 'end': _p['end']}}))
             except Exception as e:
-                print(json.dumps({{'error': f'could not set time range: {{e}}'}}))
+                print(json.dumps({{'status': 'error', 'code': 'set_time_range_failed',
+                                   'message': f'could not set time range: {{e}}'}}))
         """)
         return await _async_run_editor_script(script)
 
@@ -257,14 +261,18 @@ def register_trackview_tools(mcp: MCPServer) -> None:
             try:
                 tv.set_current_sequence(_nm)
             except Exception as e:
-                print(json.dumps({{'error': f'no sequence named {{_nm!r}}: {{e}}'}}))
+                print(json.dumps({{'status': 'error', 'code': 'sequence_not_found',
+                                   'message': f'no sequence named {{_nm!r}}: {{e}}'}}))
             else:
                 try:
                     tv.add_node(_ty, _nd)
                     print(json.dumps({{'sequence': _nm, 'added_node': _nd, 'type': _ty}}))
                 except Exception as e:
-                    print(json.dumps({{'error': f'could not add {{_ty}} node {{_nd!r}}: {{e}} '
-                                       f'(a Director node must exist before other node types)'}}))
+                    print(json.dumps({{
+                        'status': 'error', 'code': 'add_node_failed',
+                        'message': f'could not add {{_ty}} node {{_nd!r}}: {{e}} '
+                                   f'(a Director node must exist before other node types)'
+                    }}))
         """)
         return await _async_run_editor_script(script)
 
@@ -287,7 +295,8 @@ def register_trackview_tools(mcp: MCPServer) -> None:
                 tv.play_sequence()
                 print(json.dumps({{'playing': _name}}))
             except Exception as e:
-                print(json.dumps({{'error': f'could not play sequence {{_name!r}}: {{e}}'}}))
+                print(json.dumps({{'status': 'error', 'code': 'play_failed',
+                                   'message': f'could not play sequence {{_name!r}}: {{e}}'}}))
         """)
         return await _async_run_editor_script(script)
 
@@ -302,6 +311,7 @@ def register_trackview_tools(mcp: MCPServer) -> None:
                 tv.stop_sequence()
                 print(json.dumps({'stopped': True}))
             except Exception as e:
-                print(json.dumps({'error': f'could not stop sequence: {e}'}))
+                print(json.dumps({'status': 'error', 'code': 'stop_failed',
+                                  'message': f'could not stop sequence: {e}'}))
         """)
         return await _async_run_editor_script(script)

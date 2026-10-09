@@ -20,6 +20,7 @@ from pathlib import Path
 
 from mcp.server import MCPServer
 
+from o3de_mcp.utils.errors import format_error as _format_error
 from o3de_mcp.utils.o3de import (
     find_o3de_engine_path,
     list_available_templates,
@@ -201,10 +202,6 @@ def _get_cmake_generator() -> str | None:
         return "Ninja Multi-Config"
 
     return None
-
-
-def _format_error(code: str, message: str) -> str:
-    return json.dumps({"status": "error", "code": code, "message": message})
 
 
 def _validate_name(value: str, label: str) -> str:
