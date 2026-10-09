@@ -26,7 +26,7 @@ Open `http://localhost:6274` in your browser.
 
 ### 2. Browse available tools
 
-In the Inspector UI, click **Tools** in the left sidebar. You should see all 92
+In the Inspector UI, click **Tools** in the left sidebar. You should see all 96
 registered tools, from the seven tool modules: capabilities, editor,
 introspection, project, assets, Track View and animation.
 
@@ -44,8 +44,8 @@ needed.
     "port": 4600,
     "agent_server": {
       "protocol_version": 1,
-      "gem_version": "0.5.0",
-      "api_version": "0.4.0"
+      "gem_version": "0.6.0",
+      "api_version": "0.5.0"
     },
     "ai_companion_gem": true
   },
@@ -56,7 +56,7 @@ needed.
     "engine_version": "24.09"
   },
   "tool_categories": {
-    "editor_tools": {"available": true, "reason": null, "tool_count": 66},
+    "editor_tools": {"available": true, "reason": null, "tool_count": 70},
     "project_tools": {"available": true, "reason": null, "tool_count": 17},
     "asset_tools": {"available": true, "reason": null, "tool_count": 5},
     "introspection_tools": {"available": true, "reason": null, "tool_count": 3},
@@ -67,7 +67,8 @@ needed.
 
 Each category also carries a `tools` array with its tool names, left out here
 for brevity. `editor_tools` counts the editor, Track View and animation tools
-together (41 + 8 + 17).
+and the four per-asset readiness tools from the assets module together
+(41 + 8 + 17 + 4).
 
 ### 4. List registered projects
 

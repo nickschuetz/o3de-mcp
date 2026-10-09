@@ -821,3 +821,74 @@ class TestGetTransformScale:
         got = self._scale(surface, tmp_path, 2.0, _Vec(50, 50, 1))
         assert got["non_uniform_scale"] == [50.0, 50.0, 1.0]
         assert got["scale"] == [100.0, 100.0, 2.0]
+
+
+class TestComponentPropertyEnvelopes:
+    """A refused read or write is the failure envelope, never a success line."""
+
+    def test_a_failed_read_is_get_property_failed(self, surface: dict, tmp_path: Path) -> None:
+        out = _run_tool(
+            "get_component_property",
+            surface,
+            tmp_path,
+            {("EditorComponentAPIBus", "GetComponentProperty"): Failure()},
+        )
+        assert json.loads(out)["code"] == "get_property_failed"
+
+    def test_a_good_read_reports_the_value(self, surface: dict, tmp_path: Path) -> None:
+        out = _run_tool(
+            "get_component_property",
+            surface,
+            tmp_path,
+            {("EditorComponentAPIBus", "GetComponentProperty"): lambda *a: _Ok(4.5)},
+        )
+        assert json.loads(out)["value"] == "4.5"
+
+    def test_a_refused_write_is_set_property_failed(self, surface: dict, tmp_path: Path) -> None:
+        out = _run_tool(
+            "set_component_property",
+            surface,
+            tmp_path,
+            {("EditorComponentAPIBus", "SetComponentProperty"): Failure()},
+        )
+        assert json.loads(out)["code"] == "set_property_failed"
+
+    def test_a_good_write_says_so(self, surface: dict, tmp_path: Path) -> None:
+        out = _run_tool(
+            "set_component_property",
+            surface,
+            tmp_path,
+            {("EditorComponentAPIBus", "SetComponentProperty"): lambda *a: _Ok()},
+        )
+        assert out.startswith("Set "), out
+
+    def test_a_component_not_on_the_entity(self, surface: dict, tmp_path: Path) -> None:
+        out = _run_tool(
+            "get_component_property",
+            surface,
+            tmp_path,
+            {("EditorComponentAPIBus", "GetComponentOfType"): Failure()},
+        )
+        assert json.loads(out)["code"] == "component_not_on_entity"
+
+
+def test_add_component_reports_a_refused_add(surface: dict, tmp_path: Path) -> None:
+    out = _run_tool(
+        "add_component",
+        surface,
+        tmp_path,
+        {("EditorComponentAPIBus", "AddComponentOfType"): Failure()},
+    )
+    assert json.loads(out)["code"] == "add_component_failed"
+
+
+def test_instantiate_prefab_with_an_unknown_parent(surface: dict, tmp_path: Path) -> None:
+    # The parent is looked up by its text; it was rebuilt with EntityId(n) and
+    # silently ignored before.
+    script = generate_script(
+        "instantiate_prefab", {"prefab_path": "Prefabs/t.prefab", "parent_id": "999"}, tmp_path
+    )
+    assert script is not None
+    _, out = run_against_surface(script, surface, str(tmp_path), {})
+    parsed = json.loads(out)
+    assert parsed["code"] == "entity_not_found" and "999" in parsed["message"]

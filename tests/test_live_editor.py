@@ -428,6 +428,74 @@ class TestLiveConsole:
         assert isinstance(get_result, str)
 
 
+class TestLiveFailureEnvelopes:
+    """Reads and writes that fail come back as the error envelope, not as values."""
+
+    def test_unknown_cvar(self, mcp_server: MCPServer) -> None:
+        # The engine answers the text "(missing)" for a CVAR it does not have.
+        got = json.loads(_run(_call(mcp_server, "get_cvar", name="no_such_cvar_o3de_mcp")))
+        assert got["status"] == "error" and got["code"] == "cvar_not_found", got
+
+    def test_component_property_round_trip_and_refusals(self, mcp_server: MCPServer) -> None:
+        eid = str(
+            json.loads(_run(_call(mcp_server, "create_entity", name="PropTest")))["entity_id"]
+        )
+        comp = "PhysX Primitive Collider"
+        try:
+            _run(_call(mcp_server, "add_component", entity_id=eid, component_type=comp))
+            trigger = "Collider Configuration|Trigger"
+            out = _run(
+                _call(
+                    mcp_server,
+                    "set_component_property",
+                    entity_id=eid,
+                    component_type=comp,
+                    property_path=trigger,
+                    value="true",
+                )
+            )
+            assert out.startswith("Set "), out
+            got = json.loads(
+                _run(
+                    _call(
+                        mcp_server,
+                        "get_component_property",
+                        entity_id=eid,
+                        component_type=comp,
+                        property_path=trigger,
+                    )
+                )
+            )
+            assert got["value"] == "True", got
+            bad = json.loads(
+                _run(
+                    _call(
+                        mcp_server,
+                        "set_component_property",
+                        entity_id=eid,
+                        component_type=comp,
+                        property_path="No|Such|Path",
+                        value="1",
+                    )
+                )
+            )
+            assert bad["code"] == "set_property_failed", bad
+            missing = json.loads(
+                _run(
+                    _call(
+                        mcp_server,
+                        "get_component_property",
+                        entity_id=eid,
+                        component_type="Mesh",
+                        property_path="x",
+                    )
+                )
+            )
+            assert missing["code"] == "component_not_on_entity", missing
+        finally:
+            _run(_call(mcp_server, "delete_entity", entity_id=eid))
+
+
 class TestLiveLevels:
     def test_get_level_info(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "get_level_info"))

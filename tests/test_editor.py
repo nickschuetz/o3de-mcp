@@ -344,6 +344,31 @@ class TestTlsContext:
             ctx = _get_tls_context()
             assert ctx is not None
 
+    def test_verification_without_a_ca_file_uses_the_system_cas(self) -> None:
+        # A bare PROTOCOL_TLS_CLIENT context trusts no CA, so verifying without
+        # O3DE_EDITOR_TLS_CA used to fail every handshake.
+        env = {"O3DE_EDITOR_TLS": "1", "O3DE_EDITOR_TLS_VERIFY": "1"}
+        with patch.dict("os.environ", env, clear=True):
+            with patch("ssl.SSLContext.load_default_certs") as load_default:
+                ctx = _get_tls_context()
+        assert ctx is not None
+        load_default.assert_called_once()
+
+    def test_a_ca_file_is_used_instead_of_the_system_cas(self, tmp_path: Path) -> None:
+        env = {
+            "O3DE_EDITOR_TLS": "1",
+            "O3DE_EDITOR_TLS_VERIFY": "1",
+            "O3DE_EDITOR_TLS_CA": str(tmp_path / "ca.pem"),
+        }
+        with patch.dict("os.environ", env, clear=True):
+            with (
+                patch("ssl.SSLContext.load_verify_locations") as load_ca,
+                patch("ssl.SSLContext.load_default_certs") as load_default,
+            ):
+                _get_tls_context()
+        load_ca.assert_called_once_with(str(tmp_path / "ca.pem"))
+        load_default.assert_not_called()
+
 
 # --- End-to-end protocol tests against a fake in-process server ---
 

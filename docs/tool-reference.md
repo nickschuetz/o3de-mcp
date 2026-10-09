@@ -24,9 +24,10 @@ RemoteConsole with no gem behind it).
 
 ## Introspection Tools
 
-Discover a gem's scripting API. These read the editor's generated stubs from
-disk, so they work without a running editor (the project must have been opened
-in the editor once to produce the stubs).
+Discover a gem's scripting API. `get_bus_schema` reads the editor's generated
+stubs from disk, so it works without a running editor (the project must have been
+opened in the editor once to produce them). `get_bus_schema_live` and
+`capture_renderdoc_frame` need the editor.
 
 ### get_bus_schema
 
@@ -61,26 +62,29 @@ Query the running editor's BehaviorContext for a bus schema. Falls back to
 | `bus` | str | yes | Bus name (e.g. `PhysicsRequestBus`) |
 | `project_path` | str | no | Project path for fallback stub resolution |
 
-Returns JSON with a `source` field: `"live"` or `"stub_fallback"`.
-
 Tries the AiCompanion gem's native `get_bus_schema` request first (gem 0.4.0
 or later; includes argument names and tooltips, works in secure mode), then
 the editor-Python query, then the stub files. The `source` field says which
-answered: `native`, `live` or `stub_fallback`.
+answered: `native`, `live` or `stub_fallback`. When none has the bus, the reply
+is the error `bus_not_found` with `source: "stub_fallback_failed"`.
 
 ### capture_renderdoc_frame
 
-Trigger a RenderDoc frame capture in the O3DE editor. Sends the
-`r_captureFrame` console command. After capture, use the `renderdoc-mcp` MCP
-server tools to analyze the frame. No parameters.
+Trigger a RenderDoc frame capture in the O3DE editor through
+`GraphicsProfilerBus.TriggerCapture` when the editor exposes it to Python. On
+O3DE 26.10.0 it does not, so the tool returns `status: "manual_required"` with the
+manual alternatives (F12 in RenderDoc, or the editor's GPU capture menu). After a
+capture, use the `renderdoc-mcp` MCP server tools to analyze the frame. No
+parameters.
 
 ---
 
 ## Editor Tools
 
 Require a running O3DE Editor with AiCompanion + EditorPythonBindings gems.
-If the editor is unreachable, these tools will fast-fail with an
-`editor_unavailable` error within seconds rather than timing out.
+If the editor is unreachable, the first call fails within the connect timeout
+(`connection_refused` or `timeout`), and calls in the next 5 seconds fail at once
+with `editor_unavailable`, rather than each waiting out the timeout.
 
 ### run_editor_python
 
@@ -106,7 +110,9 @@ Entity hierarchy as a nested JSON tree, served natively by the gem. No parameter
 
 One entity's name, transform, parent and component list as JSON, served
 natively by the gem's C++ (`get_entity` request type, gem 0.4.0 or later).
-Works in secure mode. An unknown id returns `{"error": ...}`.
+Works in secure mode. On gem 0.6.0 the reply also carries `non_uniform_scale`
+and `effective_scale`. An unknown id is the error `not_found` (gem 0.5.0 and
+earlier answered with the gem's own `{"entity_id": ..., "error": ...}` object).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -133,7 +139,8 @@ Create a new entity in the current level.
 
 Tries the AiCompanion gem's native `create_entity` request first (gem 0.5.0
 or later, works in secure mode) and returns its JSON verbatim:
-`{"entity_id": 123, "name": "...", "position": [0.0, 0.0, 0.0]}`. The name is
+`{"entity_id": "123", "name": "...", "position": [0.0, 0.0, 0.0]}` (gem 0.6.0
+sends the id as a decimal string; gem 0.5.0 sent a number). The name is
 checked with the gem's own rule before either path (a letter first, then
 letters, digits, `_` or `-`, at most 128 characters); the gem validates the
 parent, and a refusal comes back as an error and is not retried through
@@ -180,7 +187,7 @@ Add a component to an entity.
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `entity_id` | int or str | yes | Target entity ID |
-| `component_type` | str | yes | Component name (e.g. `Mesh`, `PhysX Rigid Body`) |
+| `component_type` | str | yes | Component name (e.g. `Mesh`, `PhysX Dynamic Rigid Body`) |
 
 ### get_component_property
 
@@ -212,7 +219,7 @@ Assign an asset to a component property by resolving the asset path to an O3DE a
 | `entity_id` | int or str | yes | Entity ID |
 | `component_type` | str | yes | Component type name |
 | `property_path` | str | yes | Property path with `\|` separator |
-| `asset_path` | str | yes | Project-relative asset path (e.g. `Objects/Props/box.fbx`) |
+| `asset_path` | str | yes | Product path in the asset catalog (e.g. `objects/props/box.fbx.azmodel`) |
 
 ### remove_component
 
@@ -234,29 +241,25 @@ Set the world transform of an entity. Only provided components are changed.
 | `rotation` | list[float] | no | [x, y, z, w] quaternion rotation (4 elements) |
 | `scale` | list[float] | no | [x, y, z] effective scale, each in (0, 1000]; non-uniform needs gem API 0.5.0+ (each element at least 0.01) |
 
-Tries the gem's native `set_transform` request first (gem 0.5.0 or later,
-works in secure mode). The quaternion is converted to the XYZ Euler degrees the
-gem takes (the inverse of its own `CreateFromEulerDegreesXYZ`) and a uniform
-scale to its single number. On success it returns the updated entity's JSON
-verbatim, the same shape as `get_entity`. The gem refuses an unknown entity, an
-out-of-bounds position or a scale outside (0, 1000], and that is returned as an
-error. Older gems, the legacy transport and a rotation at a gimbal pole (pitch
-within 0.02 degrees of plus or minus 90, where the Euler form cannot carry roll
-and yaw separately) use the editor Python path, which applies the quaternion
-directly, keeps the current scale when none is given, and prints
-`Transform set for entity [<id>]`. An all-zero quaternion is rejected before
-either path.
+Goes to the AiCompanion gem's native `set_transform` request (works in secure mode)
+and returns the updated entity's JSON, the same shape as `get_entity`. The gem refuses
+an unknown entity or out-of-bounds values, and that is returned as an error.
 
-On AiCompanion gem API 0.5.0 and later (gem 0.6.0), the rotation goes to the gem as
-a quaternion as is (no Euler conversion and no editor-Python detour at a gimbal
-pole), and a non-uniform `scale` is applied natively: an O3DE Transform holds only a
-uniform scale, so the gem adds the engine's Non-uniform Scale component (as the
-Transform's "Add non-uniform scale" button does), sets the Transform's scale to 1 and
-the component to the vector, in one undo step. A later uniform scale sets the
-component back to `[1, 1, 1]`. The reply carries `scale` (the uniform scale),
-`non_uniform_scale` and `effective_scale`. On older gems a non-uniform `scale` is
-refused with `non_uniform_scale_unsupported` (it used to be applied silently as its
-largest value), because the component cannot be added from editor Python.
+On gem API 0.5.0 and later (gem 0.6.0) the quaternion and the scale are sent as is.
+An O3DE Transform holds only a uniform scale, so a non-uniform `scale` is applied
+through the engine's Non-uniform Scale component (as the Transform's "Add non-uniform
+scale" button does), with the Transform's scale set to 1, in one undo step. A later
+uniform scale sets that component back to `[1, 1, 1]`. The reply carries `scale` (the
+uniform scale), `non_uniform_scale` and `effective_scale`.
+
+On older gems the quaternion is converted to the XYZ Euler degrees the gem takes, and a
+rotation at a gimbal pole (pitch within 0.02 degrees of plus or minus 90, where the
+Euler form cannot carry roll and yaw separately) goes through editor Python instead.
+That path applies the quaternion directly, keeps the current scale when none is given,
+and prints `Transform set for entity [<id>]`. A non-uniform `scale` is refused with
+`non_uniform_scale_unsupported` (it used to be applied silently as its largest value),
+because editor Python cannot add the Non-uniform Scale component. The legacy transport
+also uses the editor-Python path. An all-zero quaternion is rejected before any path.
 
 ### get_transform
 
@@ -367,7 +370,9 @@ Redo the last undone action. No parameters.
 ### get_viewport_camera
 
 Get the active editor viewport camera transform. No parameters.
-Returns JSON: `{"position": [...], "rotation": [...], "fov": ...}`
+Returns JSON: `{"position": [x, y, z], "rotation": [x, y, z]}` (rotation in Euler
+degrees). The field of view is not available to editor Python. When the editor
+reports no camera, the error is `viewport_camera_unavailable`.
 
 ### set_viewport_camera
 
@@ -376,7 +381,7 @@ Set the active editor viewport camera transform.
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `position` | list[float] | no | [x, y, z] camera position |
-| `rotation` | list[float] | no | [x, y, z, w] quaternion rotation |
+| `rotation` | list[float] | no | [x, y, z] Euler angles in degrees |
 
 ### focus_entity
 
@@ -388,13 +393,16 @@ Focus the viewport camera on an entity.
 
 ### capture_viewport
 
-Capture a screenshot of the editor viewport.
+Capture a screenshot of the editor viewport with Atom's `CaptureScreenshot`, then
+wait on the client for a new, fully written file (`O3DE_CAPTURE_WAIT`, default 15 s).
+A level must be open; otherwise no file is written and the error is
+`capture_not_written`.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `output_path` | str | yes | File path (must end in .png/.jpg/.bmp/.tga) |
-| `width` | int | no | Capture width in pixels |
-| `height` | int | no | Capture height in pixels |
+| `output_path` | str | yes | File path (must end in .png/.jpg/.jpeg/.bmp/.tga) |
+| `width` | int | no | Ignored on O3DE 26.10.0 (applies only to a PySide6 grab the editor cannot run) |
+| `height` | int | no | Ignored on O3DE 26.10.0, like `width` |
 
 ### instantiate_prefab
 
@@ -417,7 +425,9 @@ Create a prefab file from an existing entity.
 
 ### save_prefab
 
-Save a prefab instance (propagate entity changes to the prefab file).
+Saving entity edits back into an existing prefab is not exposed to editor Python,
+so this always returns the error `prefab_save_unavailable`, with `owning_prefab`
+naming the prefab file to edit. Use `create_prefab_from_entity` to write a new one.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -463,8 +473,8 @@ authoring are not exposed.
 
 ### list_sequences
 
-List the cinematic sequences in the current level. Returns a JSON array of
-`{name, start, end}`. No parameters.
+List the cinematic sequences in the current level. Returns
+`{"sequences": [{"name", "start", "end"}, ...], "count": N}`. No parameters.
 
 ### create_sequence
 
@@ -526,8 +536,9 @@ Stop the sequence currently playing. No parameters.
 ## Animation Tools
 
 EMotion FX anim graph reads and authoring over the AiCompanion gem's native C++ request
-types. They need gem main or 0.6.0+ and the EMotionFX gem; an older gem answers with code
-`unknown_request_type`. Native only (no editor-Python fallback); they work in secure
+types. They need gem 0.6.0+ and the EMotionFX gem; an older gem answers with the message
+`Unknown request type: ...` (code `unknown_request_type` from gem 0.5.0; earlier gems
+send no code, so it arrives as `editor_error`). Native only (no editor-Python fallback); they work in secure
 mode. Graph ids are 32-bit numbers; node, transition and entity ids are decimal strings.
 
 Authoring writes refuse a graph owned by an asset or a running actor instance
@@ -883,8 +894,11 @@ Returns JSON: `{"status": "running|completed|failed", "returncode": N, "output":
 
 ## Asset Tools
 
-Monitor the Asset Processor and read diagnostic log files. These tools work
-with the filesystem and process list — they do not require a running editor.
+Monitor the Asset Processor, read diagnostic log files, and check single assets.
+`get_asset_processor_status`, `wait_for_assets`, `refresh_assets`, `tail_log` and
+`get_log_errors` work from the filesystem and process list without an editor. The
+readiness tools (`get_asset_status`, `get_asset_jobs`, `get_asset_processor_connection`,
+`wait_for_asset`) ask the Asset Processor through the editor and need gem 0.6.0+.
 
 ### get_asset_processor_status
 

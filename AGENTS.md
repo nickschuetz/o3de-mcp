@@ -28,12 +28,15 @@ Made a mistake?                  → undo / redo
 ## Tool Surface
 
 96 tools in seven groups. Full parameters in [docs/tool-reference.md](docs/tool-reference.md).
+`get_capabilities` groups the same tools by what they need instead: `editor_tools` (70)
+holds the Editor, Track View and Animation groups plus the four asset readiness tools, and
+`asset_tools` (5) holds the asset tools that work without an editor.
 
 | Group | Count | Editor needed | What it covers |
 |-------|-------|---------------|----------------|
 | Capabilities | 1 | No | `get_capabilities` — call this first |
 | Editor | 41 | Yes | Entities, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, undo/redo, persistent sessions |
-| Introspection | 3 | Partly | EBus schema (static stubs and live), RenderDoc capture |
+| Introspection | 3 | Partly | EBus schema (static stubs and live), RenderDoc capture (manual steps on O3DE 26.10.0) |
 | Project | 17 | No | Engines, projects, gems, templates, builds (blocking and background), export |
 | Assets | 9 | Partly | Asset Processor status, refresh/wait, log tailing (no editor); per-asset readiness and build failure logs (editor, gem 0.6.0+) |
 | Track View | 8 | Yes | Cinematic sequences: create/list/describe/delete, time range, add nodes, play/stop |

@@ -37,7 +37,7 @@ export. All operations are done via CLI tools.
     "engine_version": "24.09"
   },
   "tool_categories": {
-    "editor_tools": {"available": false, "reason": "Editor not connected", "tool_count": 66},
+    "editor_tools": {"available": false, "reason": "Editor not connected", "tool_count": 70},
     "project_tools": {"available": true, "reason": null, "tool_count": 17},
     "asset_tools": {"available": true, "reason": null, "tool_count": 5},
     "introspection_tools": {"available": true, "reason": null, "tool_count": 3},
@@ -171,7 +171,7 @@ If you added a gem that isn't needed:
 | `get_log_errors` | Yes | Reads the project's log files |
 | `get_bus_schema` | Yes | Reads the editor's generated azlmbr stubs from disk |
 | `list_levels` | Yes | Reads the project's Levels/ directory |
-| Editor tools (66, except `list_levels`) | **No** | Require running editor |
+| Editor tools (70, except `list_levels`) | **No** | Require running editor (includes the per-asset readiness tools `get_asset_status`, `get_asset_jobs`, `get_asset_processor_connection` and `wait_for_asset`) |
 
 ## What's Next
 

@@ -96,6 +96,9 @@ def register_introspection_tools(mcp: MCPServer) -> None:
                 mod = importlib.import_module(f'azlmbr.{{_module_name}}')
                 bus_obj = getattr(mod, _bus_name, None)
                 if bus_obj is None:
+                    # Not a live answer: fall through to the stub files, whose miss
+                    # is reported as the failure envelope.
+                    result['source'] = 'error'
                     result['error'] = f'Bus {{_bus_name}} not found in azlmbr.{{_module_name}}'
                 else:
                     events = []
@@ -141,10 +144,10 @@ def register_introspection_tools(mcp: MCPServer) -> None:
     async def capture_renderdoc_frame() -> str:
         """Trigger a RenderDoc frame capture in the O3DE editor.
 
-        Attempts to trigger a RenderDoc capture via ``GraphicsProfilerBus``
-        (reflected in the BehaviorContext but not exposed as a Python bus
-        function in O3DE 2.7.0). If the bus call is not available, reports
-        the limitation and suggests manual alternatives.
+        Attempts to trigger a RenderDoc capture via ``GraphicsProfilerBus``. That
+        bus is not exposed to editor Python on O3DE 26.10.0, so there the tool
+        returns ``manual_required`` with the manual alternatives (F12 in
+        RenderDoc, or the editor's GPU capture menu).
 
         Returns:
             JSON with status ``ok`` if the capture was triggered, ``error``

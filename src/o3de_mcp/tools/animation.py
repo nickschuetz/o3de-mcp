@@ -8,8 +8,10 @@
 EMotion FX anim graphs are not usefully reflected to editor Python, so these
 tools call the AiCompanion gem's native C++ request types directly. They need a
 gem that serves them (gem main, or 0.6.0 and later) and the EMotionFX gem
-enabled in the project. An older gem answers with the failure envelope and code
-``unknown_request_type``; a project without EMotion FX answers with code
+enabled in the project. A gem that predates these request types answers with
+the failure envelope and the message ``Unknown request type: ...``, with code
+``unknown_request_type`` on gem 0.5.0 (gem 0.4.0 and earlier send no code, so it
+arrives as ``editor_error``); a project without EMotion FX answers with code
 ``unavailable``. There is no editor-Python fallback, and every tool works in the
 gem's secure mode.
 

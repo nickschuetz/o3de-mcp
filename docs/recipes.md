@@ -165,10 +165,9 @@ missing, set `O3DE_ENGINE_PATH` and try again.
 ```
 1. create_entity(name="WinZone")
 2. add_component(entity_id=<id>, component_type="PhysX Primitive Collider")
+3. set_component_property(entity_id=<id>, component_type="PhysX Primitive Collider",
+                          property_path="Collider Configuration|Trigger", value="true")
 ```
-
-> Configure the collider as a trigger via `run_editor_python` to set
-> `IsTrigger = True`.
 
 ---
 
@@ -183,48 +182,30 @@ missing, set `O3DE_ENGINE_PATH` and try again.
 
 ### Recipe: Set entity transform (position/rotation/scale)
 
-```python
-# Use via run_editor_python
-import azlmbr.components as components
-import azlmbr.bus as bus
-import azlmbr.math as math
-
-eid = azlmbr.entity.EntityId('<entity_id>')
-pos = math.Vector3(10.0, 5.0, 0.0)
-components.TransformBus(bus.Event, 'SetWorldTranslation', eid, pos)
 ```
+1. set_transform(entity_id=<id>, position=[10.0, 5.0, 0.0])
+2. set_transform(entity_id=<id>, rotation=[0.0, 0.0, 0.7071068, 0.7071068], scale=[2.0, 2.0, 2.0])
+3. get_transform(entity_id=<id>)               → read it back
+```
+
+> Only the parts you pass change. `rotation` is an `[x, y, z, w]` quaternion
+> (this one turns 90 degrees about Z). A non-uniform `scale` such as
+> `[4.0, 4.0, 0.1]` works on the AiCompanion gem 0.6.0 (gem API 0.5.0) and
+> later, through the engine's Non-uniform Scale component; older gems refuse it
+> with `non_uniform_scale_unsupported`.
 
 ### Recipe: Set mesh asset on entity
 
-```python
-# Use via run_editor_python
-import azlmbr.editor as editor
-import azlmbr.bus as bus
-import azlmbr.entity as entity
-import azlmbr.asset as asset
-import azlmbr.math as math
-
-eid = azlmbr.entity.EntityId('<entity_id>')
-# GetAssetIdByPath takes (path, asset type uuid, auto-register); a null uuid
-# matches any type.
-mesh_asset = asset.AssetCatalogRequestBus(
-    bus.Broadcast, 'GetAssetIdByPath',
-    'objects/primitives/cube.fbx.azmodel', math.Uuid(), False
-)
-mesh_t = editor.EditorComponentAPIBus(
-    bus.Broadcast, 'FindComponentTypeIdsByEntityType',
-    ['Mesh'], entity.EntityType().Game
-)[0]
-outcome = editor.EditorComponentAPIBus(
-    bus.Broadcast, 'GetComponentOfType', eid, mesh_t
-)
-if outcome.IsSuccess():
-    pair = outcome.GetValue()
-    editor.EditorComponentAPIBus(
-        bus.Broadcast, 'SetComponentProperty', pair,
-        'Controller|Configuration|Model Asset', mesh_asset
-    )
 ```
+assign_asset(entity_id=<id>, component_type="Mesh",
+             property_path="Controller|Configuration|Model Asset",
+             asset_path="objects/shaderball/ground_plane_4x4m.fbx.azmodel")
+```
+
+> The entity needs a Mesh component first (`add_component`). `asset_path` is
+> the product path in the asset catalog. `assign_asset` reads the property back
+> and reports only an assignment that holds; an unknown asset, a component the
+> entity lacks, or a value that does not stick comes back as an error.
 
 ### Recipe: Batch-create multiple entities
 
@@ -232,10 +213,11 @@ if outcome.IsSuccess():
 # Use via run_editor_python — efficient single call
 import azlmbr.editor as editor
 import azlmbr.bus as bus
+import azlmbr.entity as entity
 import json
 
 entities = ['Tree_01', 'Tree_02', 'Tree_03', 'Rock_01', 'Rock_02']
-parent = azlmbr.entity.EntityId()
+parent = entity.EntityId()  # an empty id: create at the level root
 results = []
 for name in entities:
     eid = editor.ToolsApplicationRequestBus(bus.Broadcast, 'CreateNewEntity', parent)

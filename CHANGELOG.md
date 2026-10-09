@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The last failures reported as successes, and three that never worked.** A
+  pre-release audit found more paths outside the error envelope, now fixed:
+  - `set_component_property` printed "Set ..." without checking the result, and
+    `get_component_property` reported a failed read as `{"value": "None"}`. Both now
+    check the outcome (`set_property_failed`, `get_property_failed`) and report an
+    unknown component or one not on the entity.
+  - `add_component` reported "Added" when the add raised or returned no outcome.
+  - `get_cvar` answered a CVAR that does not exist with `"value": "(missing)"` (the
+    engine's own text) and a failed read with `"value": "Error: ..."`; those are now
+    `cvar_not_found` and `get_cvar_failed`. `get_viewport_camera` returned a bare
+    `error` key; it now returns `viewport_camera_unavailable`.
+  - `get_bus_schema_live` answered a bus missing from a real module as a live result
+    with an `error` key; it now falls back to the stubs and reports `bus_not_found`.
+  - Three fallbacks addressed Broadcast-only events with `bus.Event` and could never
+    work; they are gone.
+  - `instantiate_prefab` rebuilt its `parent_id` with `entity.EntityId(n)`, which is
+    invalid on 26.10.0, so the parent was silently ignored. It now looks the parent up
+    (an unknown one is `entity_not_found`).
+  - With `O3DE_EDITOR_TLS_VERIFY=1` and no `O3DE_EDITOR_TLS_CA`, no CA was trusted, so
+    every handshake failed. The system CA store is now loaded, as documented.
 - **`set_transform` applies non-uniform scale for real, and stops faking it.** An O3DE
   Transform holds only a uniform scale, so a scale like `[50, 50, 1]` was applied as a
   uniform 50 and reported as success. On AiCompanion gem API 0.5.0+ (gem 0.6.0) the
@@ -66,8 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Compatibility
 
-- **Entity IDs are tolerated as decimal strings.** AiCompanion gem main (API 0.4.0,
-  shipping as 0.6.0) emits every native 64-bit entity id as a decimal string instead
+- **Entity IDs are tolerated as decimal strings.** AiCompanion gem 0.6.0 (API 0.4.0
+  and up) emits every native 64-bit entity id as a decimal string instead
   of a JSON number, so a client with a 53-bit-float JSON parser cannot corrupt a u64
   id. o3de-mcp already carries ids through unchanged and accepts a number or a string
   on input; tests now pin that a full-precision u64 string round-trips through
@@ -123,7 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Animation tools** (`tools/animation.py`, 2 tools): `list_anim_graphs` and
   `get_anim_graph`, EMotion FX anim graph reads over the AiCompanion gem's native
   request types. They need gem main or 0.6.0+ and the EMotionFX gem; an older gem
-  answers with code `unknown_request_type`. No editor-Python fallback (EMotion FX
+  answers `Unknown request type` (code `unknown_request_type` from gem 0.5.0). No editor-Python fallback (EMotion FX
   anim graphs are not usefully reflected to Python); they work in secure mode.
   `get_anim_graph` takes exactly one of `anim_graph_id` (32-bit number or digit
   string) or `file_name`. `_native_request` moved to module level in `editor.py`
