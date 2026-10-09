@@ -60,8 +60,17 @@ def _is_asset_processor_running() -> bool:
 
 
 def _get_log_dir(project_path: Path) -> Path:
-    """Return the log directory for an O3DE project."""
-    return project_path / "log"
+    """Return the log directory for an O3DE project.
+
+    The editor and Asset Processor write to ``<project>/user/log``. A bare
+    ``<project>/log`` is used only when it exists and ``user/log`` does not
+    (an older layout).
+    """
+    user_log = project_path / "user" / "log"
+    legacy = project_path / "log"
+    if not user_log.is_dir() and legacy.is_dir():
+        return legacy
+    return user_log
 
 
 def _read_log_tail(log_path: Path, lines: int = 50, filter_pattern: str | None = None) -> list[str]:
@@ -97,13 +106,18 @@ def register_assets_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def wait_for_assets(timeout: int = 300) -> str:
-        """Wait for the Asset Processor to finish processing (or until timeout).
+        """Wait for the Asset Processor process to exit (or until timeout).
+
+        This watches for the process to stop, not for it to go idle, so it suits
+        a one-off AssetProcessorBatch run. A GUI Asset Processor running beside
+        the editor stays up while idle, so with one running this waits out the
+        timeout and reports ``completed: false``.
 
         Returns a progress result ``{"completed": bool, "elapsed": seconds}``.
-        ``completed`` is ``True`` when the Asset Processor went idle, or ``False``
-        when it was still running when ``timeout`` elapsed, with a ``message``
-        noting the timeout. A not-yet-finished wait is a result, not a failure, so
-        this tool does not return the error envelope.
+        ``completed`` is ``True`` when no Asset Processor process is running, or
+        ``False`` when one was still running when ``timeout`` elapsed, with a
+        ``message`` noting the timeout. A not-yet-finished wait is a result, not
+        a failure, so this tool does not return the error envelope.
         """
         if timeout <= 0:
             raise ValueError("timeout must be positive.")
@@ -129,23 +143,22 @@ def register_assets_tools(mcp: MCPServer) -> None:
         proj = _resolve_project_path(project_path)
         if proj is None:
             return format_error("project_not_found", "Could not resolve project path.")
-        from o3de_mcp.utils.o3de import find_o3de_engine_path
+        from o3de_mcp.utils.o3de import (
+            asset_processor_batch_candidates,
+            find_asset_processor_batch,
+            find_o3de_engine_path,
+        )
 
         engine = find_o3de_engine_path()
         if engine is None:
             return format_error("engine_not_found", "O3DE engine not found.")
 
-        ap_path = engine / "build" / "bin" / "profile" / "AssetProcessorBatch.exe"
-        if not ap_path.exists():
-            if platform.system() == "Windows":
-                ap_path = (
-                    engine / "build" / "windows" / "bin" / "profile" / "AssetProcessorBatch.exe"
-                )
-            else:
-                ap_path = engine / "build" / "linux" / "bin" / "profile" / "AssetProcessorBatch"
-
-        if not ap_path.exists():
-            return format_error("ap_not_found", f"Asset Processor batch not found at {ap_path}")
+        ap_path = find_asset_processor_batch(engine)
+        if ap_path is None:
+            searched = ", ".join(str(p) for p in asset_processor_batch_candidates(engine))
+            return format_error(
+                "ap_not_found", f"AssetProcessorBatch not found; looked in: {searched}"
+            )
 
         try:
             proc = await asyncio.create_subprocess_exec(

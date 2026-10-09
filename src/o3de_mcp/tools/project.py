@@ -530,7 +530,8 @@ def register_project_tools(mcp: MCPServer) -> None:
                     str(output),
                     "--config",
                     config,
-                ]
+                ],
+                timeout=_get_export_timeout(),
             )
         except subprocess.TimeoutExpired:
             return _format_error(

@@ -50,7 +50,7 @@ graph LR
     subgraph FS["Filesystem"]
         MANIFEST["~/.o3de/<br/>o3de_manifest.json"]
         STUBS["&lt;project&gt;/user/<br/>python_symbols/azlmbr"]
-        LOGS["&lt;project&gt;/log/"]
+        LOGS["&lt;project&gt;/user/log/"]
     end
 
     CC -- "MCP protocol<br/>(stdio)" --> S

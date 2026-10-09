@@ -29,7 +29,9 @@ from o3de_mcp.tools.project import (
 )
 from o3de_mcp.utils.o3de import (
     _ManifestCache,
+    asset_processor_batch_candidates,
     find_all_engines,
+    find_asset_processor_batch,
     find_o3de_cli,
     find_o3de_engine_path,
     find_o3de_engine_version,
@@ -280,6 +282,59 @@ class TestRunO3deCli:
                 run_o3de_cli(["--help", "--verbose"])
                 call_args = mock_run.call_args[0][0]
                 assert call_args == [str(cli_script), "--help", "--verbose"]
+
+    def test_default_timeout_is_300s(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.find_o3de_cli", return_value=tmp_path / "o3de.sh"):
+            with patch("subprocess.run") as mock_run:
+                run_o3de_cli(["--help"])
+        assert mock_run.call_args.kwargs["timeout"] == 300
+
+    def test_timeout_is_passed_through(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.find_o3de_cli", return_value=tmp_path / "o3de.sh"):
+            with patch("subprocess.run") as mock_run:
+                run_o3de_cli(["export-project"], timeout=7200)
+        assert mock_run.call_args.kwargs["timeout"] == 7200
+
+
+class TestFindAssetProcessorBatch:
+    def _make(self, path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        return path
+
+    def test_finds_the_installed_sdk_layout(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.platform.system", return_value="Linux"):
+            ap = self._make(
+                tmp_path / "bin" / "Linux" / "profile" / "Default" / "AssetProcessorBatch"
+            )
+            assert find_asset_processor_batch(tmp_path) == ap
+
+    def test_finds_a_source_build(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.platform.system", return_value="Linux"):
+            ap = self._make(
+                tmp_path / "build" / "linux" / "bin" / "profile" / "AssetProcessorBatch"
+            )
+            assert find_asset_processor_batch(tmp_path) == ap
+
+    def test_windows_uses_the_exe(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.platform.system", return_value="Windows"):
+            ap = self._make(
+                tmp_path / "bin" / "Windows" / "profile" / "Default" / "AssetProcessorBatch.exe"
+            )
+            assert find_asset_processor_batch(tmp_path) == ap
+
+    def test_prefers_the_sdk_layout(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.platform.system", return_value="Linux"):
+            sdk = self._make(
+                tmp_path / "bin" / "Linux" / "profile" / "Default" / "AssetProcessorBatch"
+            )
+            self._make(tmp_path / "build" / "linux" / "bin" / "profile" / "AssetProcessorBatch")
+            assert find_asset_processor_batch(tmp_path) == sdk
+
+    def test_none_when_missing(self, tmp_path: Path) -> None:
+        with patch("o3de_mcp.utils.o3de.platform.system", return_value="Linux"):
+            assert find_asset_processor_batch(tmp_path) is None
+            assert len(asset_processor_batch_candidates(tmp_path)) == 3
 
 
 # --- Manifest listing tests ---
@@ -1103,6 +1158,8 @@ class TestExportProjectDispatch:
             )
 
         assert "exported successfully" in text
+        # The export gets its own, longer timeout instead of the CLI's 300s default.
+        assert cli.call_args.kwargs["timeout"] == 3600
         assert cli.call_args.args[0] == [
             "export-project",
             "--project-path",

@@ -445,9 +445,12 @@ class TestLiveAssets:
             )
         )
         parsed = json.loads(result)
-        if parsed.get("status") != "error":
-            assert "lines" in parsed
-            assert isinstance(parsed["lines"], list)
+        # A running editor always has an Editor.log, so this must succeed; the
+        # old "check only on success" form passed for years while tail_log was
+        # looking in the wrong directory.
+        assert parsed.get("status") != "error", parsed
+        assert isinstance(parsed["lines"], list) and parsed["lines"], parsed
+        assert parsed["path"].endswith("Editor.log"), parsed
 
     def test_get_log_errors(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(
@@ -460,9 +463,9 @@ class TestLiveAssets:
             )
         )
         parsed = json.loads(result)
-        if parsed.get("status") != "error":
-            assert "errors" in parsed
-            assert "count" in parsed
+        assert parsed.get("status") != "error", parsed
+        assert isinstance(parsed["errors"], list), parsed
+        assert "count" in parsed
 
 
 class TestLiveIntrospection:

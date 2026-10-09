@@ -157,8 +157,10 @@ def find_o3de_cli() -> Path | None:
     return None
 
 
-def run_o3de_cli(args: list[str], cwd: str | Path | None = None) -> subprocess.CompletedProcess:
-    """Run the O3DE CLI with given arguments."""
+def run_o3de_cli(
+    args: list[str], cwd: str | Path | None = None, timeout: float = 300
+) -> subprocess.CompletedProcess:
+    """Run the O3DE CLI with given arguments, killing it after ``timeout`` seconds."""
     cli = find_o3de_cli()
     if cli is None:
         raise FileNotFoundError(
@@ -179,8 +181,34 @@ def run_o3de_cli(args: list[str], cwd: str | Path | None = None) -> subprocess.C
         capture_output=True,
         text=True,
         cwd=cwd,
-        timeout=300,
+        timeout=timeout,
     )
+
+
+def find_asset_processor_batch(engine: Path | None = None) -> Path | None:
+    """Locate the AssetProcessorBatch executable for an engine.
+
+    Checks the installed-SDK layout (``bin/<Platform>/profile/Default``) first,
+    then the source-build layouts (``build/<platform>/bin/profile`` and
+    ``build/bin/profile``). Returns ``None`` when none exists.
+    """
+    engine = engine or find_o3de_engine_path()
+    if engine is None:
+        return None
+    return next((path for path in asset_processor_batch_candidates(engine) if path.is_file()), None)
+
+
+def asset_processor_batch_candidates(engine: Path) -> list[Path]:
+    """Every path ``find_asset_processor_batch`` checks, in order (for error messages)."""
+    system = platform.system()
+    exe = "AssetProcessorBatch.exe" if system == "Windows" else "AssetProcessorBatch"
+    sdk_platform = {"Windows": "Windows", "Darwin": "Mac"}.get(system, "Linux")
+    build_platform = sdk_platform.lower()
+    return [
+        engine / "bin" / sdk_platform / "profile" / "Default" / exe,
+        engine / "build" / build_platform / "bin" / "profile" / exe,
+        engine / "build" / "bin" / "profile" / exe,
+    ]
 
 
 def _o3de_manifest_path() -> Path | None:
