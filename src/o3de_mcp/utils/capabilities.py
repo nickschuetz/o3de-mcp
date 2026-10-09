@@ -32,6 +32,9 @@ _EDITOR_TOOLS = frozenset(
         "add_sequence_node",
         "play_sequence",
         "stop_sequence",
+        # EMotion FX anim graphs, native AiCompanion request types (gem main / 0.6.0+)
+        "list_anim_graphs",
+        "get_anim_graph",
         "run_editor_python",
         "list_entities",
         "create_entity",

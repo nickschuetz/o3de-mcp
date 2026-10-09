@@ -508,6 +508,31 @@ Start playing a sequence in the editor.
 
 Stop the sequence currently playing. No parameters.
 
+## Animation Tools
+
+EMotion FX anim graph reads over the AiCompanion gem's native C++ request types. They
+need gem main or 0.6.0+ and the EMotionFX gem; an older gem answers with code
+`unknown_request_type`. Native only (no editor-Python fallback); they work in secure
+mode. Graph ids are 32-bit numbers; node, transition and entity ids in the output are
+decimal strings.
+
+### list_anim_graphs
+
+List every anim graph the engine holds: `editor_mode` and `anim_graphs` (each with
+`id`, `file_name`, ownership and dirty flags, node and parameter counts, and the actor
+`instances` using it). No parameters.
+
+### get_anim_graph
+
+Describe one graph: `nodes` (type, parent, position, ports, connections),
+`transitions` (blend time, conditions), `parameters`, `node_groups` and
+`root_state_machine_id`. Pass exactly one selector; an unknown graph is an error.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | one of | Graph id from `list_anim_graphs` (number or digit string, 32-bit) |
+| `file_name` | str | one of | Graph file name; exact match first, then its tail case-insensitively |
+
 ## Project Tools
 
 Wrap the O3DE CLI and CMake. Do not require a running editor.

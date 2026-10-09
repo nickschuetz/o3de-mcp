@@ -37,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Animation tools** (`tools/animation.py`, 2 tools): `list_anim_graphs` and
+  `get_anim_graph`, EMotion FX anim graph reads over the AiCompanion gem's native
+  request types. They need gem main or 0.6.0+ and the EMotionFX gem; an older gem
+  answers with code `unknown_request_type`. No editor-Python fallback (EMotion FX
+  anim graphs are not usefully reflected to Python); they work in secure mode.
+  `get_anim_graph` takes exactly one of `anim_graph_id` (32-bit number or digit
+  string) or `file_name`. `_native_request` moved to module level in `editor.py`
+  so tool modules other than the editor can call native request types.
 - **Track View tools** (`tools/trackview.py`, 8 tools): `list_sequences`,
   `create_sequence`, `delete_sequence`, `get_sequence`, `set_sequence_time_range`,
   `add_sequence_node`, `play_sequence`, `stop_sequence`. Cinematic sequence authoring
