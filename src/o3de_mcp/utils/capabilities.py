@@ -36,6 +36,7 @@ _EDITOR_TOOLS = frozenset(
         "remove_component",
         "get_scene_snapshot",
         "get_entity_tree",
+        "get_entity",
         "validate_scene",
         "set_transform",
         "get_transform",

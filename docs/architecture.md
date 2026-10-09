@@ -92,7 +92,7 @@ The [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion
 
 Scripts are base64-encoded for safe transport and executed in the editor's embedded Python interpreter.
 
-Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree` and `validate_scene` natively in C++. `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the three snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. On the legacy RemoteConsole transport those requests return an `agent_server_required` error.
+Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and `get_bus_schema` natively in C++ (the last two from gem 0.4.0). `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the three snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. On the legacy RemoteConsole transport those requests return an `agent_server_required` error.
 
 #### Connection lifecycle & timeouts
 
@@ -125,7 +125,7 @@ Always call `get_capabilities()` first to determine which tool categories are av
 |--------|------|
 | `server.py` | MCPServer entry point — registers all tool modules |
 | `tools/capabilities.py` | Exposes `get_capabilities` tool |
-| `tools/editor.py` | 40 editor automation tools — entity CRUD, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, persistent sessions; pooled TCP transport with protocol auto-detection |
+| `tools/editor.py` | 41 editor automation tools — entity CRUD, components, transforms, prefabs, levels, viewport/camera, console/CVARs, game mode, persistent sessions; pooled TCP transport with protocol auto-detection |
 | `tools/introspection.py` | 3 tools — gem-agnostic EBus discovery from the editor's generated `azlmbr` stubs, live EBus query, and RenderDoc frame capture |
 | `tools/project.py` | 17 project management tools — engines, projects, gems, templates, blocking and background builds, export |
 | `tools/assets.py` | 5 asset pipeline tools — Asset Processor status, refresh/wait, log tailing and error filtering |

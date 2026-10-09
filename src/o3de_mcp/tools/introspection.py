@@ -15,6 +15,33 @@ from mcp.server import MCPServer
 from o3de_mcp.utils.introspection import get_bus_schema as _get_bus_schema
 
 
+async def _native_bus_schema(bus: str) -> dict | None:
+    """Ask the AiCompanion AgentServer for ``bus`` via its C++ ``get_bus_schema``.
+
+    Returns the parsed schema with ``source: "native"``, or ``None`` when the
+    request is unavailable (older gem, legacy transport, editor down) or the
+    gem reports the bus as unknown, so the caller can fall back.
+    """
+    from o3de_mcp.tools.editor import _pool
+
+    try:
+        response = await _pool.send_request("get_bus_schema", params={"bus_name": bus})
+    except Exception:
+        return None
+    if not isinstance(response, dict) or response.get("status") != "ok":
+        return None
+    try:
+        parsed = json.loads(str(response.get("output", "")))
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict) or "error" in parsed or "events" not in parsed:
+        return None
+    parsed["source"] = "native"
+    parsed["bus"] = parsed.get("name", bus)
+    parsed["event_count"] = len(parsed.get("events") or [])
+    return parsed
+
+
 def register_introspection_tools(mcp: MCPServer) -> None:
     """Register reflection-introspection tools with the MCP server."""
 
@@ -37,8 +64,21 @@ def register_introspection_tools(mcp: MCPServer) -> None:
         bus: str,
         project_path: str | None = None,
     ) -> str:
-        """Query the running editor's BehaviorContext for a bus schema."""
+        """Query the running editor's BehaviorContext for a bus schema.
+
+        Tries the AiCompanion gem's native ``get_bus_schema`` request first
+        (gem 0.4.0 or later): it reads the live C++ reflection and includes
+        each event's argument names and tooltips, which the Python bindings do
+        not expose, and it works in the gem's secure mode. Older gems, the
+        legacy RemoteConsole transport, or an unknown bus fall through to the
+        editor-Python query, and that in turn falls back to the stub files.
+        """
         from o3de_mcp.tools.editor import _async_run_editor_script
+
+        native = await _native_bus_schema(bus)
+        if native is not None:
+            native["module"] = module
+            return json.dumps(native, indent=2)
 
         params = json.dumps({"module": module, "bus": bus})
         script = textwrap.dedent(f"""\

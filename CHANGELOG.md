@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`get_entity`**, a native editor tool: one entity's name, transform, parent
+  and component list from the AiCompanion gem's C++ `get_entity` request type
+  (gem 0.4.0 or later), with no editor Python. Works in secure mode. Tool count
+  is now 67 (41 editor tools).
+
+### Changed
+
+- **`get_bus_schema_live` tries the gem's native `get_bus_schema` first.** The
+  C++ path reads the live BehaviorContext and includes each event's argument
+  names and tooltips, which the Python bindings do not expose, and it works in
+  secure mode. Older gems, the legacy transport or an unknown bus fall through
+  to the editor-Python query and then to the stub files; the `source` field
+  reports which answered (`native`, `live`, `stub_fallback`).
+- The connection pool's `send_request()` and `_build_framed_request()` accept
+  extra request fields (`params`) for request types that take arguments.
+
 ## [0.4.0] - 2026-09-08
 
 ### Changed

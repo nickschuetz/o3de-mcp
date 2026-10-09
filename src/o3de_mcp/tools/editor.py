@@ -313,13 +313,24 @@ def _resolve_entity_id(eid_str):
 
 
 def _build_framed_request(
-    request_type: str, script: str | None = None, request_id: str | None = None
+    request_type: str,
+    script: str | None = None,
+    request_id: str | None = None,
+    params: dict[str, object] | None = None,
 ) -> bytes:
-    """Build a length-prefixed JSON request for the AgentServer protocol."""
+    """Build a length-prefixed JSON request for the AgentServer protocol.
+
+    ``params`` are extra top-level fields for request types that take
+    arguments (``get_entity`` takes ``entity_id``, ``get_bus_schema`` takes
+    ``bus_name``). ``id``, ``type`` and ``script`` cannot be overridden.
+    """
     msg: dict = {
         "id": request_id or str(uuid.uuid4()),
         "type": request_type,
     }
+    for key, value in (params or {}).items():
+        if key not in msg and key != "script":
+            msg[key] = value
     if script is not None:
         msg["script"] = base64.b64encode(script.encode("utf-8")).decode("ascii")
     body = json.dumps(msg).encode("utf-8")
@@ -587,8 +598,12 @@ class _EditorConnectionPool:
         host: str | None = None,
         port: int | None = None,
         timeout: float | None = None,
+        params: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Send a script-less framed request and return the decoded response.
+
+        ``params`` are passed through as extra request fields (see
+        ``_build_framed_request``).
 
         The AiCompanion AgentServer answers ``ping``, ``get_api_version``,
         ``get_scene_snapshot``, ``get_entity_tree`` and ``validate_scene``
@@ -644,7 +659,7 @@ class _EditorConnectionPool:
                 }
 
             try:
-                writer.write(_build_framed_request(request_type))
+                writer.write(_build_framed_request(request_type, params=params))
                 await writer.drain()
                 response = await _async_recv_framed(reader, timeout)
             except (TimeoutError, asyncio.TimeoutError):
@@ -880,14 +895,14 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
     # --- Native AgentServer requests (no editor Python involved) ---
 
-    async def _native_request(request_type: str) -> str:
+    async def _native_request(request_type: str, params: dict[str, object] | None = None) -> str:
         """Run one of the AgentServer's C++ request types and return its output.
 
         The AiCompanion gem serves these from its own SceneSnapshotProvider
         and validator buses, so they work even when ``execute_python`` is
         disabled by the gem's secure mode.
         """
-        response = await _pool.send_request(request_type)
+        response = await _pool.send_request(request_type, params=params)
         if response.get("status") != "ok":
             code = str(response.get("code") or "editor_error")
             message = str(response.get("error") or response.get("message") or "Unknown error")
@@ -912,6 +927,18 @@ def register_editor_tools(mcp: MCPServer) -> None:
         Served natively by the AiCompanion gem, without editor Python.
         """
         return await _native_request("get_entity_tree")
+
+    @mcp.tool()
+    async def get_entity(entity_id: str) -> str:
+        """Return one entity's name, transform, parent and component list as JSON.
+
+        Served natively by the AiCompanion gem's C++ (``get_entity`` request
+        type, gem 0.4.0 or later) with no editor Python, so it is the cheapest
+        way to look at a single entity and works in the gem's secure mode. An
+        unknown id returns a JSON object with an ``error`` field.
+        """
+        entity_id = _validate_entity_id(entity_id)
+        return await _native_request("get_entity", {"entity_id": entity_id.strip("[]")})
 
     @mcp.tool()
     async def validate_scene() -> str:

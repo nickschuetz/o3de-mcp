@@ -1297,6 +1297,32 @@ class TestNativeSnapshotTools:
         assert text == payload
         assert requested == [tool]
 
+    def test_get_entity_passes_the_id_natively(self) -> None:
+        from mcp.server import MCPServer
+
+        from o3de_mcp.tools.editor import register_editor_tools
+
+        payload = '{"id": 123, "name": "Thing", "components": []}'
+
+        async def run() -> tuple[str, list]:
+            mcp = MCPServer("test")
+            register_editor_tools(mcp)
+            with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+                mock_pool.send_request = AsyncMock(return_value={"status": "ok", "output": payload})
+                mock_pool.send_script = AsyncMock(return_value="")
+                content = (await mcp.call_tool("get_entity", {"entity_id": "[123]"})).content
+                assert mock_pool.send_script.await_count == 0
+                return content[0].text, mock_pool.send_request.call_args_list
+
+        text, calls = asyncio.run(run())
+        assert text == payload
+        assert calls[0].args[0] == "get_entity"
+        assert calls[0].kwargs["params"] == {"entity_id": "123"}
+
+    def test_get_entity_rejects_a_bad_id_before_sending(self) -> None:
+        with pytest.raises(Exception):
+            asyncio.run(_call_tool("get_entity", {"entity_id": "not-an-id"}))
+
     def test_legacy_protocol_is_reported_not_faked(self) -> None:
         text, _ = asyncio.run(
             self._call_native(
