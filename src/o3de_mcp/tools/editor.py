@@ -1687,11 +1687,18 @@ def register_editor_tools(mcp: MCPServer) -> None:
         its single number; it returns the updated entity's JSON verbatim (the
         same shape as ``get_entity``). The gem refuses an unknown entity, an
         out-of-bounds position or a scale outside (0, 1000], and that is
-        returned as an error. Older gems, the legacy transport, a non-uniform
-        scale and a rotation at a gimbal pole (pitch within 0.02 degrees of
-        plus or minus 90) use the editor-Python path, which applies the
-        quaternion directly and prints ``Transform set for entity [<id>]``.
-        An all-zero quaternion is rejected before either path.
+        returned as an error. Older gems, the legacy transport and a rotation
+        at a gimbal pole (pitch within 0.02 degrees of plus or minus 90) use the
+        editor-Python path, which applies the quaternion directly, keeps the
+        current scale when none is given, and prints
+        ``Transform set for entity [<id>]``. An all-zero quaternion is rejected
+        before either path.
+
+        An O3DE Transform holds only a uniform scale, and the Non-uniform Scale
+        component cannot be added from editor Python, so a ``scale`` whose
+        three values differ is refused with the error
+        ``non_uniform_scale_unsupported`` instead of being applied as its
+        largest value.
         """
         entity_id = _validate_entity_id(entity_id)
         pos = _validate_vec3(position, "position") if position is not None else None
@@ -1711,15 +1718,23 @@ def register_editor_tools(mcp: MCPServer) -> None:
             if math.sqrt(sum(v * v for v in rot)) < 1e-12:
                 raise ValueError("rotation quaternion must not be all zeros.")
 
+        # A Transform holds one uniform scale; a non-uniform one would silently
+        # collapse to its largest value, so refuse it.
+        if scl is not None and not scl[0] == scl[1] == scl[2]:
+            return _format_error(
+                "non_uniform_scale_unsupported",
+                f"Scale {scl} is not uniform. An O3DE Transform holds only a uniform "
+                "scale, and the Non-uniform Scale component cannot be added from editor "
+                "Python; pass the same value for x, y and z.",
+            )
+
         # The native request takes a uniform scale and XYZ Euler degrees. A
-        # non-uniform scale, and a rotation whose pitch sits on a gimbal pole
-        # (where the Euler form cannot carry roll and yaw separately), can only
-        # go through the editor-Python matrix path below, which takes the
-        # quaternion as is.
-        uniform_scale = scl is not None and scl[0] == scl[1] == scl[2]
+        # rotation whose pitch sits on a gimbal pole (where the Euler form cannot
+        # carry roll and yaw separately) goes through the editor-Python path
+        # below, which takes the quaternion as is.
         euler = _quaternion_to_euler_degrees_xyz(rot) if rot is not None else None
         near_pole = euler is not None and _near_gimbal_pole(euler)
-        if (scl is None or uniform_scale) and not near_pole:
+        if not near_pole:
             native_params: dict[str, object] = {"entity_id": entity_id.strip("[]")}
             if pos is not None:
                 native_params["position"] = pos
@@ -1762,27 +1777,29 @@ def register_editor_tools(mcp: MCPServer) -> None:
             else:
                 t_rot = current.rotation
 
+            # A Transform holds one uniform scale (the tool refuses a non-uniform
+            # one). Keep the current scale when none is given: rebuilding from
+            # rotation and translation alone would reset it to 1.
             if scl is not None:
-                t_scl = math.Vector3(float(scl[0]), float(scl[1]), float(scl[2]))
-                rot_m3 = math.Matrix3x3_CreateFromQuaternion(t_rot)
-                scale_m = math.Matrix3x3_CreateDiagonal(t_scl)
-                try:
-                    final_m3 = math.Matrix3x3_Multiply(scale_m, rot_m3)
-                except Exception:
-                    b0 = rot_m3.BasisX
-                    b1 = rot_m3.BasisY
-                    b2 = rot_m3.BasisZ
-                    final_m3 = math.Matrix3x3_CreateFromColumns(
-                        math.Vector3(b0.x * t_scl.x, b0.y * t_scl.x, b0.z * t_scl.x),
-                        math.Vector3(b1.x * t_scl.y, b1.y * t_scl.y, b1.z * t_scl.y),
-                        math.Vector3(b2.x * t_scl.z, b2.y * t_scl.z, b2.z * t_scl.z),
-                    )
-                new_tm = math.Transform_CreateFromMatrix3x3AndTranslation(final_m3, t_pos)
+                _uniform = float(scl[0])
             else:
-                new_tm = math.Transform_CreateFromQuaternionAndTranslation(t_rot, t_pos)
-
+                _uniform = float(current.GetUniformScale())
+            new_tm = math.Transform_CreateFromQuaternionAndTranslation(t_rot, t_pos)
+            new_tm.SetUniformScale(_uniform)
             components.TransformBus(bus.Event, 'SetWorldTM', eid, new_tm)
-            print(f'Transform set for entity {{eid}}')
+
+            # Read the scale back: report one that did not land instead of success.
+            _got = components.TransformBus(bus.Event, 'GetWorldTM', eid)
+            _got_uniform = _got.GetUniformScale() if _got is not None else None
+            _tol = 1e-3 * max(1.0, abs(_uniform))
+            if not isinstance(_got_uniform, (int, float)) or abs(_got_uniform - _uniform) > _tol:
+                _o3de_fail(
+                    'set_transform_failed',
+                    f'Scale did not land on entity {{eid}}: asked {{_uniform}}, '
+                    f'read back {{_got_uniform}}',
+                )
+            else:
+                print(f'Transform set for entity {{eid}}')
         """)
         return await _async_run_editor_script(script)
 

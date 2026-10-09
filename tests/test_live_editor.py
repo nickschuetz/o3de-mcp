@@ -306,6 +306,41 @@ class TestLiveTransform:
             _run(_call(mcp_server, "delete_entity", entity_id=entity_id))
 
 
+class TestLiveTransformScale:
+    """An O3DE Transform holds one uniform scale."""
+
+    def test_non_uniform_scale_is_refused_and_changes_nothing(self, mcp_server: MCPServer) -> None:
+        created = json.loads(_run(_call(mcp_server, "create_entity", name="ScaleRefused")))
+        eid = str(created["entity_id"])
+        try:
+            parsed = json.loads(
+                _run(_call(mcp_server, "set_transform", entity_id=eid, scale=[50, 50, 1]))
+            )
+            assert parsed["status"] == "error", parsed
+            assert parsed["code"] == "non_uniform_scale_unsupported", parsed
+            got = json.loads(_run(_call(mcp_server, "get_transform", entity_id=eid)))
+            assert all(math.isclose(s, 1.0, abs_tol=1e-3) for s in got["scale"]), got
+        finally:
+            _run(_call(mcp_server, "delete_entity", entity_id=eid))
+
+    def test_python_path_keeps_the_scale_when_none_is_given(self, mcp_server: MCPServer) -> None:
+        created = json.loads(_run(_call(mcp_server, "create_entity", name="KeepScale")))
+        eid = str(created["entity_id"])
+        try:
+            _run(_call(mcp_server, "set_transform", entity_id=eid, scale=[3, 3, 3]))
+            # Pitch +90 is a gimbal pole, so this rotation takes the editor-Python
+            # path, which used to reset the scale to 1.
+            half = math.sqrt(0.5)
+            out = _run(
+                _call(mcp_server, "set_transform", entity_id=eid, rotation=[0, half, 0, half])
+            )
+            assert out.startswith("Transform set for entity"), out
+            got = json.loads(_run(_call(mcp_server, "get_transform", entity_id=eid)))
+            assert all(math.isclose(s, 3.0, abs_tol=1e-3) for s in got["scale"]), got
+        finally:
+            _run(_call(mcp_server, "delete_entity", entity_id=eid))
+
+
 class TestLiveConsole:
     def test_run_console_command(self, mcp_server: MCPServer) -> None:
         result = _run(_call(mcp_server, "run_console_command", command="r_DisplayInfo 0"))
