@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. 86 tools across seven categories:
+An MCP server (Model Context Protocol) that exposes Open 3D Engine (O3DE) capabilities to AI assistants. 92 tools across seven categories:
 - **Capabilities tools** (`src/o3de_mcp/tools/capabilities.py`, 1 tool) — runtime detection of editor connectivity and CLI availability. Call `get_capabilities()` first to know what's available.
 - **Editor tools** (`src/o3de_mcp/tools/editor.py`, 41 tools) — send Python scripts to a running O3DE Editor over TCP port 4600. Covers entities, components, transforms, prefabs, levels, viewport/camera, console and CVARs, game mode, undo/redo, and persistent scripting sessions. Requires the AiCompanion and EditorPythonBindings gems active in the editor. Four of the tools (`get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene`) use the AgentServer's native C++ request types instead of sending Python. `get_bus_schema_live`, `create_entity`, `set_transform` and `delete_entity` try their native request types first (`_native_bus_schema` in `tools/introspection.py`, `_native_mutation` in `tools/editor.py`) and fall back to editor Python only when the gem is too old to serve them or the transport is the legacy RemoteConsole; a native refusal (validation, missing entity) is returned as an error, never retried through Python. Fast-fails when the editor is unreachable.
 - **Introspection tools** (`src/o3de_mcp/tools/introspection.py`, 3 tools) — EBus schema discovery (static stub parsing and live query) plus RenderDoc frame capture.
 - **Project tools** (`src/o3de_mcp/tools/project.py`, 17 tools) — wrap the O3DE CLI (`scripts/o3de.sh` / `o3de.bat`) and CMake for project creation, gem management, engine registration, builds (blocking and background), and export.
 - **Asset tools** (`src/o3de_mcp/tools/assets.py`, 5 tools) — Asset Processor status, asset refresh/wait, and log tailing.
 - **Track View tools** (`src/o3de_mcp/tools/trackview.py`, 8 tools): cinematic sequence authoring: create/list/describe/delete sequences, set time range, add nodes (Director, Event, entity, component), and play/stop. Editor-Python over `azlmbr.legacy.trackview`; no gem request type. Track and keyframe authoring are intentionally not exposed (the reflected API's per-node parameter-type strings and record-only key workflow are not reliable to drive).
-- **Animation tools** (`src/o3de_mcp/tools/animation.py`, 11 tools): EMotion FX anim graph reads (`list_anim_graphs`, `get_anim_graph`) and authoring (create/remove/load/save a graph, add/remove nodes, set the entry state, add/remove parameters) over the AiCompanion gem's native C++ request types (gem main or 0.6.0+, plus the EMotionFX gem). Native only, no editor-Python fallback; work in secure mode. Writes refuse asset- or runtime-owned graphs, and each is an Animation Editor undo step, not one the `undo` tool reverts.
+- **Animation tools** (`src/o3de_mcp/tools/animation.py`, 17 tools): EMotion FX anim graph reads (`list_anim_graphs`, `get_anim_graph`) and authoring (create/remove/load/save a graph, add/edit/remove nodes, set the entry state, add/remove parameters, add/edit/remove transitions with conditions, connect/disconnect blend-tree ports) over the AiCompanion gem's native C++ request types (gem main or 0.6.0+, plus the EMotionFX gem). Native only, no editor-Python fallback; work in secure mode. Writes refuse asset- or runtime-owned graphs, and each is an Animation Editor undo step, not one the `undo` tool reverts.
 
 ## Commands
 
@@ -88,7 +88,7 @@ src/o3de_mcp/
 ## Documentation
 
 - `AGENTS.md` — Agent-specific guide: token efficiency rules, quick reference, decision tree, error handling. Read this first when using the MCP tools as an AI agent.
-- `docs/tool-reference.md`: Compact parameter reference for all 86 tools.
+- `docs/tool-reference.md`: Compact parameter reference for all 92 tools.
 - `docs/architecture.md` — System diagram, editor protocol details, and communication flow.
 - `docs/releasing.md` covers the release checklist. The live editor suite (`scripts/live-sandbox.sh up|test|down`) is a required gate before tagging, and CI cannot run it.
 - `docs/recipes.md` — Composable game-dev patterns (scene setup, physics, lighting, scripting).

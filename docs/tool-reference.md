@@ -623,6 +623,97 @@ Remove a value parameter; groups are refused. Returns `{"removed": "<name>"}`.
 | `anim_graph_id` | int or str | yes | Graph id |
 | `name` | str | yes | Parameter name |
 
+### set_anim_graph_node
+
+Edit a node. Pass at least one change. Returns the node object. An unknown attribute is
+refused with the settable fields listed.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `node_id` | int or str | yes | Node id |
+| `name` | str | no | New name |
+| `position` | [int, int] | no | Graph-canvas position in pixels |
+| `enabled` | bool | no | Enable or disable the node |
+| `attributes` | object | no | Reflected fields to set, e.g. a motion node's `{"motionIds": ["<id>"]}` (read back as `motion_ids`) |
+
+### add_anim_graph_transition
+
+Add a state-machine transition. Returns the transition object as `get_anim_graph` emits
+it. Source and target must share a state-machine parent; an exit node cannot be a
+source. All conditions land as one Animation Editor undo step.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `target_node_id` | int or str | yes | State to transition to |
+| `source_node_id` | int or str | unless `wildcard` | State to transition from |
+| `wildcard` | bool | no | True for a transition from any state (omit `source_node_id`) |
+| `blend_time` | float | no | Seconds, 0 or more |
+| `priority` | int | no | Higher wins when several are ready |
+| `disabled` | bool | no | Create disabled |
+| `sync_mode` | int | no | 0 disabled, 1 track based, 2 clip based |
+| `interpolation` | int | no | 0 linear, 1 ease curve |
+| `conditions` | list | no | `[{"condition_type", "attributes"}]`; see below |
+
+Condition types (or the RTTI name) and their attribute keys; enum values take the
+integer or the name, case-insensitive. An unknown key is refused with the supported list.
+
+| `condition_type` | Attributes |
+|------------------|------------|
+| `ParameterCondition` | `parameterName`, `function` (GREATER, GREATEREQUAL, LESS, LESSEQUAL, NOTEQUAL, EQUAL, INRANGE, NOTINRANGE), `testValue`, `rangeValue`, `timeRequirement`, `stringFunction`, `testString` |
+| `TimeCondition` | `countDownTime`, `useRandomization`, `minRandomTime`, `maxRandomTime` |
+| `PlayTimeCondition` | `nodeId`, `mode` (REACHEDTIME, REACHEDEND, HASLESSTHAN), `playTime` |
+| `MotionCondition` | `motionNodeId`, `testFunction` (EVENT, HASENDED, HASREACHEDMAXNUMLOOPS, PLAYTIME, PLAYTIMELEFT, ISMOTIONASSIGNED, ISMOTIONNOTASSIGNED, NONE), `numLoops`, `playTime` |
+| `StateCondition` | `stateId`, `testFunction` (EXITSTATES, ENTERING, ENTER, EXIT, END, PLAYTIME, NONE), `playTime` |
+| `TagCondition` | `function` (ALL, NOTALL, ONEORMORE, NONE), `tags` (list) |
+| `Vector2Condition` | `parameterName`, `operation` (LENGTH, GETX, GETY), `testFunction`, `testValue`, `rangeValue` |
+
+### set_anim_graph_transition
+
+Change a transition's settings (at least one). Returns the transition object.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `transition_id` | int or str | yes | Transition id |
+| `blend_time` / `priority` / `disabled` / `sync_mode` / `interpolation` | as above | no | Settings to change |
+
+### remove_anim_graph_transition
+
+Remove a transition and its conditions. Returns `{"removed": "<transition id>"}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `transition_id` | int or str | yes | Transition id |
+
+### connect_anim_graph_ports
+
+Connect an output port to an input port in a blend tree. Returns the target node's input
+port object. Refused: a target inside a state machine (use `add_anim_graph_transition`),
+incompatible port types, an occupied input, a duplicate, a cycle. An unknown port name is
+refused with the node's ports listed as `"name" (index)`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `source_node_id` | int or str | yes | Node whose output to connect |
+| `source_port` | int or str | yes | Output port index or name |
+| `target_node_id` | int or str | yes | Node whose input to connect |
+| `target_port` | int or str | yes | Input port index or name |
+
+### disconnect_anim_graph_ports
+
+Remove the connection feeding an input port. Returns `{"removed": "<connection id>"}`; a
+free port is `not_found`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `target_node_id` | int or str | yes | Node whose input to free |
+| `target_port` | int or str | yes | Input port index or name |
+
 ## Project Tools
 
 Wrap the O3DE CLI and CMake. Do not require a running editor.
