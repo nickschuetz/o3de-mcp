@@ -30,11 +30,13 @@ from o3de_mcp.tools.editor import (
     _get_editor_port,
     _get_editor_timeout,
     _get_tls_context,
+    _near_gimbal_pole,
     _quaternion_to_euler_degrees_xyz,
     _send_editor_command,
     _validate_component_type,
     _validate_console_command,
     _validate_entity_id,
+    _validate_entity_name,
     _validate_prefab_path,
     _validate_vec3,
 )
@@ -1505,6 +1507,63 @@ class TestNativeMutationTools:
         assert scripts == 0
         assert json.loads(text)["code"] == "editor_unavailable"
 
+    def test_the_unknown_request_type_code_falls_back(self) -> None:
+        text, _, scripts = asyncio.run(
+            self._call(
+                "delete_entity",
+                {"entity_id": "123"},
+                {"status": "error", "code": "unknown_request_type", "error": "no such type"},
+            )
+        )
+        assert scripts == 1
+        assert text == "script ran"
+
+    def test_only_a_message_that_starts_with_unknown_request_type_falls_back(self) -> None:
+        # The gem echoes caller input in some refusals, so the fallback marker
+        # must be matched as the whole reply, not as a substring.
+        echoed = "cannot delete entity named 'Unknown request type: x'"
+        text, _, scripts = asyncio.run(
+            self._call("delete_entity", {"entity_id": "123"}, {"status": "error", "error": echoed})
+        )
+        assert scripts == 0
+        assert json.loads(text)["message"] == echoed
+
+    @pytest.mark.parametrize(
+        "name", ["", "1abc", "has space", "Unknown request type: x", "a" * 129]
+    )
+    def test_create_entity_rejects_a_bad_name_before_any_request(self, name: str) -> None:
+        with pytest.raises(Exception) as excinfo:
+            asyncio.run(
+                self._call("create_entity", {"name": name}, {"status": "ok", "output": "{}"})
+            )
+        # The SDK wraps the tool's ValueError; the rule is in the cause.
+        assert "ntity name" in str(excinfo.value.__cause__ or excinfo.value)
+
+    def test_set_transform_at_a_gimbal_pole_uses_python(self) -> None:
+        # [0.5, 0.5, 0.5, 0.5] is roll 90, pitch 90: the XYZ Euler form cannot
+        # carry it, so the quaternion goes through the editor-Python path.
+        text, calls, scripts = asyncio.run(
+            self._call(
+                "set_transform",
+                {"entity_id": "123", "rotation": [0.5, 0.5, 0.5, 0.5]},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert calls == []
+        assert scripts == 1
+        assert text == "script ran"
+
+    def test_set_transform_rejects_a_zero_quaternion(self) -> None:
+        with pytest.raises(Exception) as excinfo:
+            asyncio.run(
+                self._call(
+                    "set_transform",
+                    {"entity_id": "123", "rotation": [0, 0, 0, 0]},
+                    {"status": "ok", "output": "{}"},
+                )
+            )
+        assert "all zeros" in str(excinfo.value.__cause__ or excinfo.value)
+
 
 def _quaternion_from_euler_degrees_xyz(degrees: list[float]) -> list[float]:
     """Port of AZ::Quaternion::CreateFromEulerDegreesXYZ, the gem's native inverse."""
@@ -1556,6 +1615,49 @@ class TestQuaternionToEulerDegreesXYZ:
         roll, pitch, yaw = _quaternion_to_euler_degrees_xyz(quaternion)
         assert pitch == pytest.approx(90.0, abs=1e-3)
         assert roll == 0.0 and yaw == 0.0
+
+    @pytest.mark.parametrize(
+        "quaternion, degrees",
+        [
+            # Literal anchors independent of the test's own Euler-to-quaternion port.
+            ([math.sin(math.pi / 4), 0.0, 0.0, math.cos(math.pi / 4)], [90.0, 0.0, 0.0]),
+            ([0.0, math.sin(math.pi / 4), 0.0, math.cos(math.pi / 4)], [0.0, 90.0, 0.0]),
+            ([0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4)], [0.0, 0.0, 90.0]),
+            # Hand-computed compound: roll 90 then yaw 90 in O3DE's XYZ order.
+            # q = (cx sy sz + sx cy cz, cx sy cz - sx cy sz, cx cy sz + sx sy cz,
+            # cx cy cz - sx sy sz) with half angles 45, 0, 45 gives
+            # (0.5, -0.5, 0.5, 0.5).
+            ([0.5, -0.5, 0.5, 0.5], [90.0, 0.0, 90.0]),
+        ],
+    )
+    def test_literal_anchors(self, quaternion: list[float], degrees: list[float]) -> None:
+        assert _quaternion_to_euler_degrees_xyz(quaternion) == pytest.approx(degrees, abs=1e-3)
+
+    @pytest.mark.parametrize(
+        "euler, expected",
+        [
+            ([0.0, 90.0, 0.0], True),
+            ([0.0, -90.0, 0.0], True),
+            ([10.0, 89.99, 20.0], True),
+            ([10.0, 89.9, 20.0], False),
+            ([90.0, 0.0, 90.0], False),
+        ],
+    )
+    def test_near_gimbal_pole(self, euler: list[float], expected: bool) -> None:
+        assert _near_gimbal_pole(euler) is expected
+
+
+class TestValidateEntityName:
+    @pytest.mark.parametrize(
+        "name", ["Player", "Enemy1", "my_entity", "player-two", "A", "a" * 128]
+    )
+    def test_accepts_the_gem_rule(self, name: str) -> None:
+        assert _validate_entity_name(name) == name
+
+    @pytest.mark.parametrize("name", ["", "1abc", "_x", "has space", "semi;colon", "a" * 129])
+    def test_rejects_what_the_gem_rejects(self, name: str) -> None:
+        with pytest.raises(ValueError):
+            _validate_entity_name(name)
 
 
 class TestCreatePrefabFromEntity:

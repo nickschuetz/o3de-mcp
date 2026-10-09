@@ -52,6 +52,13 @@ _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 # Validates entity IDs — O3DE uses numeric IDs like "[1234]" or plain integers
 _ENTITY_ID_RE = re.compile(r"^\[?\d+\]?$")
+# Mirrors the AiCompanion gem's InputValidator::IsValidEntityName and
+# safety/validators.py: a letter first, then letters, digits, "_" or "-".
+_ENTITY_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_MAX_ENTITY_NAME_LENGTH = 128
+# A pitch this close to +-90 degrees is a gimbal pole for the XYZ Euler form
+# the native set_transform takes, where roll and yaw collapse into one angle.
+_GIMBAL_POLE_MARGIN_DEGREES = 0.02
 
 # Validates component type names — alphanumeric, spaces, hyphens, parentheses
 _COMPONENT_TYPE_RE = re.compile(r"^[A-Za-z0-9 ()\-_]+$")
@@ -206,6 +213,26 @@ def _validate_entity_id(entity_id: str) -> str:
     return entity_id
 
 
+def _validate_entity_name(name: str) -> str:
+    """Validate an entity name with the AiCompanion gem's own rule.
+
+    The check runs before either the native or the editor-Python path so a
+    name the gem would refuse never reaches the Python fallback, which does
+    not validate it. Raises ValueError for an empty, too long or malformed
+    name.
+    """
+    if not isinstance(name, str) or not name:
+        raise ValueError("Entity name must be a non-empty string.")
+    if len(name) > _MAX_ENTITY_NAME_LENGTH:
+        raise ValueError(f"Entity name exceeds {_MAX_ENTITY_NAME_LENGTH} characters.")
+    if not _ENTITY_NAME_RE.match(name):
+        raise ValueError(
+            f"Invalid entity name {name!r}: it must start with a letter and contain "
+            "only letters, digits, underscores or hyphens."
+        )
+    return name
+
+
 def _validate_component_type(component_type: str) -> str:
     """Validate a component type name.
 
@@ -306,6 +333,17 @@ def _quaternion_to_euler_degrees_xyz(quaternion: list[float]) -> list[float]:
         pitch = sign_pitch * math.acos(min(1.0, math.sqrt(cos_pitch_sq)))
     yaw = math.atan2(m12n, m11)
     return [math.degrees(roll), math.degrees(pitch), math.degrees(yaw)]
+
+
+def _near_gimbal_pole(euler_degrees: list[float]) -> bool:
+    """True when the pitch is within ``_GIMBAL_POLE_MARGIN_DEGREES`` of +-90.
+
+    At the pole the XYZ Euler form has one degree of freedom fewer than the
+    quaternion, so a rotation sent natively as Euler degrees could land with
+    its roll and yaw merged; callers keep such rotations on the quaternion
+    path instead.
+    """
+    return abs(abs(euler_degrees[1]) - 90.0) <= _GIMBAL_POLE_MARGIN_DEGREES
 
 
 # ---------------------------------------------------------------------------
@@ -958,8 +996,10 @@ def register_editor_tools(mcp: MCPServer) -> None:
         Returns the gem's ``output`` JSON on success, a formatted error for
         anything the gem itself refused (validation failures, a missing
         entity, the editor being down), and ``None`` only when the request
-        type is unavailable: an older gem answers ``Unknown request type`` and
-        the legacy RemoteConsole transport reports ``agent_server_required``.
+        type is unavailable: an older gem answers a message starting with
+        ``Unknown request type`` (newer gems also set the code
+        ``unknown_request_type``) and the legacy RemoteConsole transport
+        reports ``agent_server_required``.
         Callers fall back to their editor-Python script on ``None`` and must
         not retry a refused mutation through Python, which would skip the
         gem's validation.
@@ -969,7 +1009,11 @@ def register_editor_tools(mcp: MCPServer) -> None:
             return str(response.get("output", ""))
         code = str(response.get("code") or "editor_error")
         message = str(response.get("error") or response.get("message") or "Unknown error")
-        if code == "agent_server_required" or "Unknown request type" in message:
+        # The gem echoes user input in some refusals ("invalid entity name
+        # '...'"), so only a message that *is* the unknown-type reply counts.
+        if code in ("agent_server_required", "unknown_request_type") or message.startswith(
+            "Unknown request type"
+        ):
             return None
         return _format_error(code, message)
 
@@ -1047,7 +1091,9 @@ def register_editor_tools(mcp: MCPServer) -> None:
         Tries the AiCompanion gem's native ``create_entity`` request first
         (gem 0.5.0 or later, works in the gem's secure mode) and returns its
         JSON verbatim: ``{"entity_id": ..., "name": ..., "position": [...]}``.
-        The gem validates the name and parent; a refusal is returned as an
+        The name is checked here with the gem's own rule (a letter first, then
+        letters, digits, ``_`` or ``-``, at most 128 characters) before either
+        path, and the gem validates the parent; a refusal is returned as an
         error. Older gems and the legacy transport fall back to editor Python,
         which prints ``Created entity [<id>]``.
 
@@ -1055,6 +1101,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
             name: Name for the new entity.
             parent_id: Optional entity ID of the parent. None for root-level.
         """
+        name = _validate_entity_name(name)
         if parent_id is not None:
             parent_id = _validate_entity_id(parent_id)
 
@@ -1572,9 +1619,11 @@ def register_editor_tools(mcp: MCPServer) -> None:
         its single number; it returns the updated entity's JSON verbatim (the
         same shape as ``get_entity``). The gem refuses an unknown entity, an
         out-of-bounds position or a scale outside (0, 1000], and that is
-        returned as an error. Older gems, the legacy transport and a
-        non-uniform scale use the editor-Python path, which prints
-        ``Transform set for entity [<id>]``.
+        returned as an error. Older gems, the legacy transport, a non-uniform
+        scale and a rotation at a gimbal pole (pitch within 0.02 degrees of
+        plus or minus 90) use the editor-Python path, which applies the
+        quaternion directly and prints ``Transform set for entity [<id>]``.
+        An all-zero quaternion is rejected before either path.
         """
         entity_id = _validate_entity_id(entity_id)
         pos = _validate_vec3(position, "position") if position is not None else None
@@ -1591,16 +1640,23 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 rot = [float(v) for v in rotation]
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"rotation must contain only numbers, got {rotation!r}.") from exc
+            if math.sqrt(sum(v * v for v in rot)) < 1e-12:
+                raise ValueError("rotation quaternion must not be all zeros.")
 
-        # The native request takes a uniform scale; a non-uniform one can only
-        # go through the editor-Python matrix path below.
+        # The native request takes a uniform scale and XYZ Euler degrees. A
+        # non-uniform scale, and a rotation whose pitch sits on a gimbal pole
+        # (where the Euler form cannot carry roll and yaw separately), can only
+        # go through the editor-Python matrix path below, which takes the
+        # quaternion as is.
         uniform_scale = scl is not None and scl[0] == scl[1] == scl[2]
-        if scl is None or uniform_scale:
+        euler = _quaternion_to_euler_degrees_xyz(rot) if rot is not None else None
+        near_pole = euler is not None and _near_gimbal_pole(euler)
+        if (scl is None or uniform_scale) and not near_pole:
             native_params: dict[str, object] = {"entity_id": entity_id.strip("[]")}
             if pos is not None:
                 native_params["position"] = pos
-            if rot is not None:
-                native_params["rotation"] = _quaternion_to_euler_degrees_xyz(rot)
+            if euler is not None:
+                native_params["rotation"] = euler
             if scl is not None:
                 native_params["scale"] = scl[0]
             native = await _native_mutation("set_transform", native_params)

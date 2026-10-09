@@ -133,9 +133,11 @@ Create a new entity in the current level.
 
 Tries the AiCompanion gem's native `create_entity` request first (gem 0.5.0
 or later, works in secure mode) and returns its JSON verbatim:
-`{"entity_id": 123, "name": "...", "position": [0.0, 0.0, 0.0]}`. The gem
-validates the name and the parent; a refusal comes back as an error and is not
-retried through Python. Older gems and the legacy transport fall back to editor
+`{"entity_id": 123, "name": "...", "position": [0.0, 0.0, 0.0]}`. The name is
+checked with the gem's own rule before either path (a letter first, then
+letters, digits, `_` or `-`, at most 128 characters); the gem validates the
+parent, and a refusal comes back as an error and is not retried through
+Python. Older gems and the legacy transport fall back to editor
 Python, which prints `Created entity [<id>]`.
 
 ### delete_entity
@@ -238,8 +240,11 @@ gem takes (the inverse of its own `CreateFromEulerDegreesXYZ`) and a uniform
 scale to its single number. On success it returns the updated entity's JSON
 verbatim, the same shape as `get_entity`. The gem refuses an unknown entity, an
 out-of-bounds position or a scale outside (0, 1000], and that is returned as an
-error. Older gems, the legacy transport and a non-uniform scale use the editor
-Python path, which prints `Transform set for entity [<id>]`.
+error. Older gems, the legacy transport, a non-uniform scale and a rotation at
+a gimbal pole (pitch within 0.02 degrees of plus or minus 90, where the Euler
+form cannot carry roll and yaw separately) use the editor Python path, which
+applies the quaternion directly and prints `Transform set for entity [<id>]`.
+An all-zero quaternion is rejected before either path.
 
 ### get_transform
 

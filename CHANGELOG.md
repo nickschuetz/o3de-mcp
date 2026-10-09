@@ -26,7 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transport fall back to the existing editor-Python scripts and their text
   output, unchanged. `set_transform` keeps its quaternion and `[x, y, z]`
   scale parameters: the quaternion is converted to the XYZ Euler degrees the
-  gem takes, and a non-uniform scale always uses the Python path.
+  gem takes, while a non-uniform scale and a rotation at a gimbal pole (pitch
+  within 0.02 degrees of plus or minus 90) always use the Python path, and an
+  all-zero quaternion is rejected. `create_entity` checks the name with the
+  gem's own rule before either path, so a bad name never reaches the Python
+  fallback. The fallback triggers only on a reply that starts with
+  `Unknown request type` or carries the `unknown_request_type` code, not on a
+  refusal that merely echoes those words.
 - **`get_bus_schema_live` tries the gem's native `get_bus_schema` first.** The
   C++ path reads the live BehaviorContext and includes each event's argument
   names and tooltips, which the Python bindings do not expose, and it works in
