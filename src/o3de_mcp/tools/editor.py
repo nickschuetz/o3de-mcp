@@ -42,8 +42,10 @@ import textwrap
 import time
 import uuid
 from pathlib import Path
+from typing import Annotated
 
 from mcp.server import MCPServer
+from pydantic import BeforeValidator, Field
 
 from o3de_mcp.utils.errors import format_error
 
@@ -207,12 +209,38 @@ class EditorConnectionError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def _validate_entity_id(entity_id: str) -> str:
-    """Validate and normalize an entity ID string.
+# Tool parameter types for entity ids. The MCP layer JSON-decodes a string
+# argument unless its parameter is annotated exactly ``str``, which would turn
+# the bracketed form "[1234]" (what the editor prints) into a list. Keeping the
+# annotation ``str`` preserves brackets, and ``coerce_numbers_to_str`` still
+# accepts a JSON number, which gems up to API 0.3.0 emit.
+EntityIdArg = Annotated[str, Field(coerce_numbers_to_str=True)]
 
-    Raises ValueError if the entity ID doesn't match the expected format.
+
+def _optional_entity_id_input(value: object) -> object:
+    """Map null to "" (not given) and a JSON number to its digit string."""
+    if value is None:
+        return ""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return value
+
+
+# Optional variant: "" means "not given", and an explicit null maps to it.
+OptionalEntityIdArg = Annotated[str, BeforeValidator(_optional_entity_id_input)]
+
+
+def _validate_entity_id(entity_id: int | str) -> str:
+    """Validate and normalize an entity ID to its digit string.
+
+    Accepts a number or a string, since the AiCompanion gem emits ids as JSON
+    numbers up to API 0.3.0 and as decimal strings from 0.4.0, and an agent
+    should be able to pass back whichever it received. Raises ValueError if the
+    entity ID doesn't match the expected format.
     """
-    entity_id = entity_id.strip()
+    if isinstance(entity_id, bool):
+        raise ValueError(f"Invalid entity ID {entity_id!r}: expected a numeric ID.")
+    entity_id = str(entity_id).strip()
     if not _ENTITY_ID_RE.match(entity_id):
         raise ValueError(
             f"Invalid entity ID format: {entity_id!r}. "
@@ -391,6 +419,17 @@ def _resolve_entity_id(eid_str):
         if str(eid) == eid_str or str(eid).strip('[]') == eid_str.strip('[]'):
             return eid
     return None
+"""
+
+
+# Editor scripts report a failure with ``_o3de_fail(code, message)``, which prints
+# the same envelope ``_format_error`` returns, so a caller can detect any failure
+# with ``status == "error"`` whether it came from the server or the editor.
+_FAIL_SNIPPET = """
+import json as _o3de_json
+
+def _o3de_fail(code, message):
+    print(_o3de_json.dumps({'status': 'error', 'code': code, 'message': str(message)}))
 """
 
 
@@ -947,6 +986,8 @@ async def _async_run_editor_script(script: str, timeout: float | None = None) ->
     """
     if "_resolve_entity_id" in script:
         script = _ENTITY_RESOLVER_SNIPPET + script
+    if "_o3de_fail(" in script:
+        script = _FAIL_SNIPPET + script
     return await _pool.send_script(script, timeout=timeout)
 
 
@@ -1047,7 +1088,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _native_request("get_entity_tree")
 
     @mcp.tool()
-    async def get_entity(entity_id: str) -> str:
+    async def get_entity(entity_id: EntityIdArg) -> str:
         """Return one entity's name, transform, parent and component list as JSON.
 
         Served natively by the AiCompanion gem's C++ (``get_entity`` request
@@ -1095,7 +1136,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def create_entity(name: str, parent_id: str | None = None) -> str:
+    async def create_entity(name: str, parent_id: OptionalEntityIdArg = "") -> str:
         """Create a new entity in the current O3DE level.
 
         Tries the AiCompanion gem's native ``create_entity`` request first
@@ -1109,14 +1150,14 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
         Args:
             name: Name for the new entity.
-            parent_id: Optional entity ID of the parent. None for root-level.
+            parent_id: Optional entity ID of the parent. Omit (or pass null) for root-level.
         """
         name = _validate_entity_name(name)
-        if parent_id is not None:
+        if parent_id:
             parent_id = _validate_entity_id(parent_id)
 
         native_params: dict[str, object] = {"name": name}
-        if parent_id is not None:
+        if parent_id:
             native_params["parent_id"] = parent_id.strip("[]")
         native = await _native_mutation("create_entity", native_params)
         if native is not None:
@@ -1157,7 +1198,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def delete_entity(entity_id: str) -> str:
+    async def delete_entity(entity_id: EntityIdArg) -> str:
         """Delete an entity from the current O3DE level.
 
         Tries the gem's native ``delete_entity`` request first (gem 0.5.0 or
@@ -1190,7 +1231,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def duplicate_entity(entity_id: str) -> str:
+    async def duplicate_entity(entity_id: EntityIdArg) -> str:
         """Duplicate an entity (and its children) in the current O3DE level.
 
         Args:
@@ -1247,7 +1288,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
     # --- Component management ---
 
     @mcp.tool()
-    async def get_entity_components(entity_id: str) -> str:
+    async def get_entity_components(entity_id: EntityIdArg) -> str:
         """List all components attached to an entity.
 
         Args:
@@ -1298,7 +1339,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def add_component(entity_id: str, component_type: str) -> str:
+    async def add_component(entity_id: EntityIdArg, component_type: str) -> str:
         """Add a component to an entity.
 
         Args:
@@ -1322,8 +1363,11 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 bus.Broadcast, 'FindComponentTypeIdsByEntityType',
                 [comp_type], entity.EntityType().Game
             )
-            if not type_ids:
-                print(f'Component type "{{comp_type}}" not found')
+            # An unknown name comes back as a list holding the null uuid, not an
+            # empty list, so treat that as not found too.
+            _null = '00000000-0000-0000-0000-000000000000'
+            if not type_ids or _null in str(type_ids[0]):
+                _o3de_fail('component_type_not_found', f'Component type "{{comp_type}}" not found')
             else:
                 tid = type_ids[0]
                 # O3DE 2510+: AddComponentOfType (singular) via Broadcast
@@ -1336,7 +1380,9 @@ def register_editor_tools(mcp: MCPServer) -> None:
                             print(f'Added {{comp_type}} to {{eid}}')
                         else:
                             err = outcome.GetError() if hasattr(outcome, 'GetError') else 'unknown'
-                            print(f'Failed to add {{comp_type}}: {{err}}')
+                            _o3de_fail(
+                                'add_component_failed',
+                                f'Failed to add {{comp_type}}: {{err}}')
                     else:
                         print(f'Added {{comp_type}} to {{eid}}')
                 except Exception:
@@ -1350,7 +1396,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def get_component_property(
-        entity_id: str, component_type: str, property_path: str
+        entity_id: EntityIdArg, component_type: str, property_path: str
     ) -> str:
         """Get a property value from a component on an entity.
 
@@ -1417,7 +1463,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def set_component_property(
-        entity_id: str, component_type: str, property_path: str, value: str
+        entity_id: EntityIdArg, component_type: str, property_path: str, value: str
     ) -> str:
         """Set a property value on a component.
 
@@ -1494,7 +1540,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def assign_asset(
-        entity_id: str, component_type: str, property_path: str, asset_path: str
+        entity_id: EntityIdArg, component_type: str, property_path: str, asset_path: str
     ) -> str:
         """Assign an asset to a component property by resolving the asset path."""
         entity_id = _validate_entity_id(entity_id)
@@ -1538,11 +1584,13 @@ def register_editor_tools(mcp: MCPServer) -> None:
                         asset_path
                     )
                 except Exception as e:
-                    print(f'Failed to resolve asset path: {{e}}')
+                    _why = f'Failed to resolve asset path {{asset_path}}: {{e}}'
                     asset_id = None
 
             if asset_id is None:
-                print(f'Asset not found: {{asset_path}}')
+                _o3de_fail(
+                    'asset_not_found',
+                    locals().get('_why') or f'Asset not found: {{asset_path}}')
             else:
                 asset_ref = str(asset_id)
                 type_ids = editor.EditorComponentAPIBus(
@@ -1577,7 +1625,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def remove_component(entity_id: str, component_type: str) -> str:
+    async def remove_component(entity_id: EntityIdArg, component_type: str) -> str:
         """Remove a component from an entity."""
         entity_id = _validate_entity_id(entity_id)
         component_type = _validate_component_type(component_type)
@@ -1596,15 +1644,20 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 bus.Broadcast, 'FindComponentTypeIdsByEntityType',
                 [comp_type], entity.EntityType().Game
             )
-            if not type_ids:
-                print(f'Component type "{{comp_type}}" not found')
+            # An unknown name comes back as a list holding the null uuid, not an
+            # empty list, so treat that as not found too.
+            _null = '00000000-0000-0000-0000-000000000000'
+            if not type_ids or _null in str(type_ids[0]):
+                _o3de_fail('component_type_not_found', f'Component type "{{comp_type}}" not found')
             else:
                 tid = type_ids[0]
-                # 'RemoveComponentOfType' is not reflected by any O3DE version. The call
+                # 'RemoveComponentOfType'' is not reflected by any O3DE version. The call
                 # returned None and this tool printed "Removed" without removing anything.
                 found = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, tid)
                 if not hasattr(found, 'IsSuccess') or not found.IsSuccess():
-                    print(f'Component "{{comp_type}}" is not on entity {{eid}}')
+                    _o3de_fail(
+                        'component_not_on_entity',
+                        f'Component "{{comp_type}}" is not on entity {{eid}}')
                 else:
                     ok = editor.EditorComponentAPIBus(
                         bus.Broadcast, 'RemoveComponents', [found.GetValue()]
@@ -1612,13 +1665,15 @@ def register_editor_tools(mcp: MCPServer) -> None:
                     if ok:
                         print(f'Removed {{comp_type}} from {{eid}}')
                     else:
-                        print(f'Failed to remove {{comp_type}} from {{eid}}: editor refused')
+                        _o3de_fail(
+                            'remove_component_failed',
+                            f'Failed to remove {{comp_type}} from {{eid}}: editor refused')
         """)
         return await _async_run_editor_script(script)
 
     @mcp.tool()
     async def set_transform(
-        entity_id: str,
+        entity_id: EntityIdArg,
         position: list[float] | None = None,
         rotation: list[float] | None = None,
         scale: list[float] | None = None,
@@ -1732,7 +1787,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def get_transform(entity_id: str) -> str:
+    async def get_transform(entity_id: EntityIdArg) -> str:
         """Get the world transform of an entity."""
         entity_id = _validate_entity_id(entity_id)
         params = json.dumps({"entity_id": entity_id})
@@ -1774,7 +1829,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def set_parent(entity_id: str, parent_id: str) -> str:
+    async def set_parent(entity_id: EntityIdArg, parent_id: EntityIdArg) -> str:
         """Set the parent of an entity (reparent in the hierarchy)."""
         entity_id = _validate_entity_id(entity_id)
         parent_id = _validate_entity_id(parent_id)
@@ -1798,7 +1853,9 @@ def register_editor_tools(mcp: MCPServer) -> None:
             if str(now).strip('[]') == str(pid).strip('[]'):
                 print(f'Set parent of {{eid}} to {{pid}}')
             else:
-                print(f'Failed to set parent of {{eid}} to {{pid}}: parent is now {{now}}')
+                _o3de_fail(
+                    'set_parent_failed',
+                    f'Failed to set parent of {{eid}} to {{pid}}: parent is now {{now}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -1817,7 +1874,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 general.run_console(cmd)
                 print(f'Executed: {{cmd}}')
             except Exception as e:
-                print(f'Failed to execute command: {{e}}')
+                _o3de_fail('console_command_failed', f'Failed to execute command: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -1878,7 +1935,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 general.run_console(cmd)
                 print(f'Set {{cvar_name}} = {{cvar_value}}')
             except Exception as e:
-                print(f'Failed to set {{cvar_name}}: {{e}}')
+                _o3de_fail('set_cvar_failed', f'Failed to set {{cvar_name}}: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -1906,7 +1963,9 @@ def register_editor_tools(mcp: MCPServer) -> None:
             if _ok:
                 print(f"Opened level: {{_actual}}")
             else:
-                print(f"ERROR: could not open level {{_name!r}}; still on {{_actual!r}}")
+                _o3de_fail(
+                    'load_level_failed',
+                    f"Could not open level {{_name!r}}; still on {{_actual!r}}")
         """)
         return await _async_run_editor_script(script)
 
@@ -1988,13 +2047,17 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 if _result == 0:
                     print(f'Created and opened level: {{_name}}')
                 elif _result is None:
-                    print(f'ERROR: could not create level {{_name!r}}: the editor '
-                          f'rejected the create_level_no_prompt call; see the editor log')
+                    _o3de_fail(
+                        'create_level_failed',
+                        f'Could not create level {{_name!r}}: the editor '
+                               f'rejected the create_level_no_prompt call; see the editor log')
                 else:
                     _reason = _reasons.get(_result, f'engine returned code {{_result}}')
-                    print(f'ERROR: could not create level {{_name!r}}: {{_reason}}')
+                    _o3de_fail(
+                        'create_level_failed',
+                        f'Could not create level {{_name!r}}: {{_reason}}')
             except Exception as e:
-                print(f'ERROR: failed to create level {{_name!r}}: {{e}}')
+                _o3de_fail('create_level_failed', f'Failed to create level {{_name!r}}: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -2148,12 +2211,12 @@ def register_editor_tools(mcp: MCPServer) -> None:
                     general.set_current_view_rotation(float(rot[0]), float(rot[1]), float(rot[2]))
                 print('Viewport camera set')
             except Exception as e:
-                print(f'Failed to set viewport camera: {{e}}')
+                _o3de_fail('set_viewport_camera_failed', f'Failed to set viewport camera: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def focus_entity(entity_id: str) -> str:
+    async def focus_entity(entity_id: EntityIdArg) -> str:
         """Focus the viewport camera on an entity."""
         entity_id = _validate_entity_id(entity_id)
         params = json.dumps({"entity_id": entity_id})
@@ -2171,7 +2234,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 )
                 print(f'Focused on entity {{eid}}')
             except Exception as e:
-                print(f'Failed to focus on entity: {{e}}')
+                _o3de_fail('focus_failed', f'Failed to focus on entity: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -2321,9 +2384,13 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 try:
                     ok, msg = _try_atom_frame_capture()
                     if not ok:
-                        print(f'Failed to capture viewport: {{msg}} [PySide6: {{pyside_msg}}]')
+                        _o3de_fail(
+                            'capture_failed',
+                            f'Failed to capture viewport: {{msg}} [PySide6: {{pyside_msg}}]')
                 except Exception as e:
-                    print(f'Failed to capture viewport: {{e}} [PySide6: {{pyside_msg}}]')
+                    _o3de_fail(
+                        'capture_failed',
+                        f'Failed to capture viewport: {{e}} [PySide6: {{pyside_msg}}]')
         """)
         # STAT BEFORE ISSUING. A file already at this path -- the previous
         # capture, when an agent shoots to the same name in a loop -- otherwise
@@ -2370,25 +2437,26 @@ def register_editor_tools(mcp: MCPServer) -> None:
                     stable_since = now
             await asyncio.sleep(0.05)
 
-        return (
+        return _format_error(
+            "capture_not_written",
             f"Capture was issued but no new file appeared at {output_path} "
             f"within {capture_wait:g}s (O3DE_CAPTURE_WAIT). The usual cause is "
             f"that no level is open: CaptureScreenshot then returns success "
             f"with a capture id and never writes anything, while the same call "
             f"lands in under a second once a level is loaded. "
-            f"Editor said: {result.strip()}"
+            f"Editor said: {result.strip()}",
         )
 
     @mcp.tool()
     async def instantiate_prefab(
         prefab_path: str,
         position: list[float] | None = None,
-        parent_id: str | None = None,
+        parent_id: OptionalEntityIdArg = "",
     ) -> str:
         """Instantiate a prefab in the current level."""
         prefab_path = _validate_prefab_path(prefab_path)
         pos = _validate_vec3(position, "position") if position is not None else [0.0, 0.0, 0.0]
-        if parent_id is not None:
+        if parent_id:
             parent_id = _validate_entity_id(parent_id)
         params = json.dumps({"prefab_path": prefab_path, "position": pos, "parent_id": parent_id})
         script = textwrap.dedent(f"""\
@@ -2437,10 +2505,11 @@ def register_editor_tools(mcp: MCPServer) -> None:
                     pass
 
             if not _found:
-                print('Failed to instantiate prefab: not found: ' + _path +
-                      ' (searched ' + ', '.join(_roots) + ' and the asset catalog).'
-                      ' The call was not made, because instantiating a missing'
-                      ' prefab crashes the editor.')
+                _o3de_fail('prefab_not_found',
+                           'Failed to instantiate prefab: not found: ' + _path +
+                           ' (searched ' + ', '.join(_roots) + ' and the asset catalog).'
+                           ' The call was not made, because instantiating a missing'
+                           ' prefab crashes the editor.')
             else:
                 if _parent_id:
                     parent = entity.EntityId(_parent_id)
@@ -2460,16 +2529,18 @@ def register_editor_tools(mcp: MCPServer) -> None:
                             print(f'Instantiated prefab: {{_path}} (entity={{eid}})')
                         else:
                             err = result.GetError() if hasattr(result, 'GetError') else 'unknown'
-                            print(f'Failed to instantiate prefab: {{err}}')
+                            _o3de_fail(
+                                'instantiate_prefab_failed',
+                                f'Failed to instantiate prefab: {{err}}')
                     else:
                         print(f'Instantiated prefab: {{_path}}')
                 except Exception as e:
-                    print(f'Failed to instantiate prefab: {{e}}')
+                    _o3de_fail('instantiate_prefab_failed', f'Failed to instantiate prefab: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def create_prefab_from_entity(entity_id: str, prefab_path: str) -> str:
+    async def create_prefab_from_entity(entity_id: EntityIdArg, prefab_path: str) -> str:
         """Write a prefab file to disk from an existing entity.
 
         The path is relative to the project root. The level is not modified;
@@ -2503,15 +2574,19 @@ def register_editor_tools(mcp: MCPServer) -> None:
                     bus.Broadcast, 'CreatePrefab', [eid], _path
                 )
                 if not isinstance(_tid, int) or _tid == 0:
-                    print(f'Failed to create prefab: could not build a template '
-                          f'for entity {{eid}} (got {{_tid!r}})')
+                    _o3de_fail(
+                        'create_prefab_failed',
+                        f'Failed to create prefab: could not build a template '
+                               f'for entity {{eid}} (got {{_tid!r}})')
                 else:
                     _out = prefab.PrefabLoaderScriptingBus(
                         bus.Broadcast, 'SaveTemplateToString', _tid
                     )
                     if not hasattr(_out, 'IsSuccess') or not _out.IsSuccess():
-                        print(f'Failed to create prefab: could not serialise '
-                              f'template {{_tid}} for {{_path}}')
+                        _o3de_fail(
+                            'create_prefab_failed',
+                            f'Failed to create prefab: could not serialise '
+                                   f'template {{_tid}} for {{_path}}')
                     else:
                         _dest = os.path.join(paths.projectroot, _path)
                         os.makedirs(os.path.dirname(_dest), exist_ok=True)
@@ -2521,15 +2596,17 @@ def register_editor_tools(mcp: MCPServer) -> None:
                         if os.path.isfile(_dest):
                             print(f'Created prefab: {{_path}} from entity {{eid}}')
                         else:
-                            print(f'Failed to create prefab: nothing written to '
-                                  f'{{_dest}}')
+                            _o3de_fail(
+                                'create_prefab_failed',
+                                f'Failed to create prefab: nothing written to '
+                                       f'{{_dest}}')
             except Exception as e:
-                print(f'Failed to create prefab: {{e}}')
+                _o3de_fail('create_prefab_failed', f'Failed to create prefab: {{e}}')
         """)
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def save_prefab(entity_id: str) -> str:
+    async def save_prefab(entity_id: EntityIdArg) -> str:
         """Report where a prefab instance came from.
 
         Propagating live entity edits back to a .prefab file is not reachable
@@ -2562,7 +2639,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 _owner = f'<unavailable: {{e}}>'
 
             print(json.dumps({{
-                'status': 'unsupported',
+                'status': 'error',
                 'code': 'prefab_save_unavailable',
                 'entity_id': str(eid),
                 'owning_prefab': str(_owner),

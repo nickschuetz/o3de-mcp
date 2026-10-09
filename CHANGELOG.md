@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Editor failures use the error envelope too.** The failure envelope from the error
+  contract below was returned by the server and by some editor tools, but other editor
+  tools still printed plain-text failures (add/remove component, assign_asset, set_parent,
+  console commands and CVARs, load_level, create_level, viewport camera, focus,
+  capture_viewport, prefab instantiate/create). An agent checking `status == "error"` read
+  those as successes. Every editor-script failure now goes through one `_o3de_fail(code,
+  message)` helper that prints the same envelope, each with its own code
+  (`component_type_not_found`, `set_parent_failed`, `load_level_failed`,
+  `capture_not_written`, ...). `save_prefab`, which cannot save, now reports
+  `status: "error"` (code `prefab_save_unavailable`) instead of `"unsupported"`, and
+  capture_renderdoc_frame's failure carries a code.
+- **Entity-id parameters accept a number, a digit string, or `[1234]`.** They were typed
+  string-only, so passing back a gem 0.5.0 numeric id failed. Widening them naively to
+  `int | str` would have broken the bracketed form, because the MCP layer JSON-decodes a
+  string argument unless the parameter is annotated exactly `str`. They now keep a `str`
+  annotation that also accepts a JSON number at full precision. This also fixes the
+  optional `parent_id` of `create_entity` and `instantiate_prefab`, which never accepted
+  the bracketed form.
 - **One failure shape across every tool.** A tool that fails now always returns
   `{"status": "error", "code": "<slug>", "message": "<text>"}`, so a caller can
   detect any failure with a single `status == "error"` check and branch on the

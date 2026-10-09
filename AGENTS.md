@@ -58,9 +58,11 @@ Less obvious tools worth knowing:
   (`{"entity_id": ...}`, the entity, `{"deleted": ...}`); the fallback prints a sentence.
 
 **Treat entity IDs as opaque.** In native tool output an id is a JSON number on gem 0.5.0
-and a decimal string on gem main / 0.6.0 or later (the gem switched so a 64-bit id survives
-a 53-bit-float JSON parser). Pass the id straight back as you received it; every tool accepts
-a number or a string. Do not parse an id into a number of your own and do arithmetic on it.
+and a decimal string on gem 0.6.0 or later (the gem switched so a 64-bit id survives a
+53-bit-float JSON parser); editor-Python output prints it bracketed, `[1234]`. Pass the id
+straight back as you received it: every entity-id parameter accepts a number, a digit
+string, or the bracketed form. Do not parse an id into a number of your own and do
+arithmetic on it.
 
 ## Token Efficiency Rules
 
@@ -198,39 +200,46 @@ Inputs are validated — these will be rejected:
 
 ## Error Handling
 
-Every tool reports failure the same way: a JSON object
+Every tool reports failure the same way, whether the failure happened in the
+server, the editor, or the AiCompanion gem: a JSON object
 
 ```json
 {"status": "error", "code": "<slug>", "message": "<human-readable text>"}
 ```
 
-Detect any failure with a single check: `status == "error"`. Branch on the stable
-`code` slug (for example `connection_refused`, `timeout`, `no_level_open`,
-`log_not_found`, `duplicate_failed`); show the `message` to the user. A successful
-call never carries a top-level `status` of `"error"`; its payload is tool-specific
-(some successes use `status: "ok"` or `"manual_required"`).
+Detect any failure with a single check: parse the output as JSON and test
+`status == "error"`. Branch on the stable `code` slug (for example
+`connection_refused`, `timeout`, `no_level_open`, `component_type_not_found`,
+`log_not_found`, `not_found`); show the `message` to the user. Some failures carry
+extra diagnostic fields beside the three (for example `save_prefab` adds
+`owning_prefab`). Successes are tool-specific: many return JSON, and some editor
+tools answer with a plain sentence such as `Added Mesh to [1234]`, which is not
+JSON and never an error. No success carries a top-level `status` of `"error"`
+(some use `status: "ok"` or `"manual_required"`).
 
-Three things fall outside this envelope by design:
+Native requests (snapshots, entities, anim graphs) take their `code` from the
+AiCompanion gem: `validation_failed`, `not_found`, `unavailable`, `engine_error`,
+`secure_mode`, `unknown_request_type`, `timeout`, `shutting_down`. Gem 0.5.0 and
+earlier send no code on most refusals, which arrive as `editor_error`; there,
+`get_entity` on a missing id answers with the gem's own
+`{"entity_id": ..., "error": "No entity with id ..."}` instead of the envelope.
+
+Two things fall outside the envelope by design:
 
 - **Invalid input** caught at the tool boundary (a malformed entity ID, an empty
   name, a non-positive timeout) is raised as a tool error before any editor or
-  CLI work runs, rather than returned as the envelope.
+  CLI work runs. A few checks that need more context, such as an unknown build
+  config or a log name with a path separator, come back as the envelope.
 - **`wait_for_assets`** returns a progress result `{"completed": bool,
   "elapsed": seconds}`. A wait that times out is a result (`completed: false`),
   not a failure.
-- **Native read tools** (`get_entity`, `get_scene_snapshot`, `get_entity_tree`,
-  `validate_scene`) pass the AiCompanion gem's response through verbatim. A gem
-  refusal (unreflected request, validation) is converted to the envelope, but a
-  logical not-found the gem reports inside a successful response keeps the gem's
-  own shape (for example `get_entity` on a missing id returns
-  `{"entity_id": ..., "error": "No entity with id ..."}`).
 
 | Error | Likely Cause | Fix |
 |-------|-------------|-----|
 | "Could not connect to O3DE Editor" | Editor not running or AiCompanion gem not enabled | Start editor with the AiCompanion and EditorPythonBindings gems |
 | "timeout" (command did not complete) | A single editor op ran past `O3DE_EDITOR_TIMEOUT`; editor may still be working | Raise `O3DE_EDITOR_TIMEOUT` or pass `run_editor_python(..., timeout=N)`; don't blindly retry (may duplicate work) |
 | "Invalid entity ID" | Non-numeric ID passed | Use numeric IDs from list_entities() |
-| "Component type not found" | Typo in component name or gem not enabled | Check [component catalog](docs/components.md) |
+| `component_type_not_found` | Typo in component name or gem not enabled | Check [component catalog](docs/components.md) |
 | "O3DE CLI not found" | Engine not installed or O3DE_ENGINE_PATH not set | Run get_engine_info() to diagnose |
 | "editor_unavailable" | Editor unreachable (fast-fail) | Call get_capabilities(); editor tools need running editor |
 | "does not exist" | Path validation failed | Verify path exists on disk |

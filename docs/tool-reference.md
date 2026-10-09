@@ -110,7 +110,7 @@ Works in secure mode. An unknown id returns `{"error": ...}`.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity id, `"1234"` or `"[1234]"` |
+| `entity_id` | int or str | yes | Entity id, `"1234"` or `"[1234]"` |
 
 ### validate_scene
 
@@ -129,7 +129,7 @@ Create a new entity in the current level.
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | str | yes | Entity name |
-| `parent_id` | str | no | Parent entity ID (omit for root) |
+| `parent_id` | int or str | no | Parent entity ID (omit for root) |
 
 Tries the AiCompanion gem's native `create_entity` request first (gem 0.5.0
 or later, works in secure mode) and returns its JSON verbatim:
@@ -146,7 +146,7 @@ Delete an entity from the current level.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID to delete |
+| `entity_id` | int or str | yes | Entity ID to delete |
 
 Tries the gem's native `delete_entity` request first (gem 0.5.0 or later, works
 in secure mode) and returns `{"deleted": <id>}` verbatim. The gem refuses an
@@ -159,7 +159,7 @@ Duplicate an entity and its children.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID to duplicate |
+| `entity_id` | int or str | yes | Entity ID to duplicate |
 
 Returns JSON: `{"id": "...", "name": "..."}`
 
@@ -169,7 +169,7 @@ List components on an entity.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID (numeric, e.g. `1234` or `[1234]`) |
+| `entity_id` | int or str | yes | Entity ID (numeric, e.g. `1234` or `[1234]`) |
 
 Returns JSON array: `[{"component_id": "...", "type": "..."}]`
 
@@ -179,7 +179,7 @@ Add a component to an entity.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Target entity ID |
+| `entity_id` | int or str | yes | Target entity ID |
 | `component_type` | str | yes | Component name (e.g. `Mesh`, `PhysX Rigid Body`) |
 
 ### get_component_property
@@ -188,7 +188,7 @@ Get a property value from a component.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID |
+| `entity_id` | int or str | yes | Entity ID |
 | `component_type` | str | yes | Component type name |
 | `property_path` | str | yes | Property path with `\|` separator (e.g. `Transform\|Translate`) |
 
@@ -198,7 +198,7 @@ Set a property value on a component.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID |
+| `entity_id` | int or str | yes | Entity ID |
 | `component_type` | str | yes | Component type name |
 | `property_path` | str | yes | Property path with `\|` separator |
 | `value` | str | yes | Value as string (`true`/`false` for bools, numbers as strings) |
@@ -209,7 +209,7 @@ Assign an asset to a component property by resolving the asset path to an O3DE a
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID |
+| `entity_id` | int or str | yes | Entity ID |
 | `component_type` | str | yes | Component type name |
 | `property_path` | str | yes | Property path with `\|` separator |
 | `asset_path` | str | yes | Project-relative asset path (e.g. `Objects/Props/box.fbx`) |
@@ -220,7 +220,7 @@ Remove a component from an entity.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID |
+| `entity_id` | int or str | yes | Entity ID |
 | `component_type` | str | yes | Component type name to remove |
 
 ### set_transform
@@ -229,7 +229,7 @@ Set the world transform of an entity. Only provided components are changed.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID |
+| `entity_id` | int or str | yes | Entity ID |
 | `position` | list[float] | no | [x, y, z] world position |
 | `rotation` | list[float] | no | [x, y, z, w] quaternion rotation (4 elements) |
 | `scale` | list[float] | no | [x, y, z] scale |
@@ -252,7 +252,7 @@ Get the world transform of an entity.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID |
+| `entity_id` | int or str | yes | Entity ID |
 
 Returns JSON: `{"position": [x,y,z], "rotation": [x,y,z,w], "scale": [x,y,z]}`
 
@@ -262,8 +262,8 @@ Set the parent of an entity (reparent in the hierarchy).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID to reparent |
-| `parent_id` | str | yes | New parent entity ID |
+| `entity_id` | int or str | yes | Entity ID to reparent |
+| `parent_id` | int or str | yes | New parent entity ID |
 
 ### run_console_command
 
@@ -369,7 +369,7 @@ Focus the viewport camera on an entity.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID to focus on |
+| `entity_id` | int or str | yes | Entity ID to focus on |
 
 ### capture_viewport
 
@@ -389,7 +389,7 @@ Instantiate a prefab in the current level.
 |-------|------|----------|-------------|
 | `prefab_path` | str | yes | Path to .prefab file |
 | `position` | list[float] | no | [x, y, z] spawn position (defaults to origin) |
-| `parent_id` | str | no | Parent entity ID |
+| `parent_id` | int or str | no | Parent entity ID |
 
 ### create_prefab_from_entity
 
@@ -397,7 +397,7 @@ Create a prefab file from an existing entity.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Entity ID to create prefab from |
+| `entity_id` | int or str | yes | Entity ID to create prefab from |
 | `prefab_path` | str | yes | Path for the new .prefab file |
 
 ### save_prefab
@@ -406,7 +406,7 @@ Save a prefab instance (propagate entity changes to the prefab file).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `entity_id` | str | yes | Root entity ID of the prefab instance |
+| `entity_id` | int or str | yes | Root entity ID of the prefab instance |
 
 ### begin_session
 

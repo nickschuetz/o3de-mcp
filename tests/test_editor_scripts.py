@@ -509,8 +509,8 @@ class TestNoFalseSuccess:
             tmp_path,
             {("EditorComponentAPIBus", "RemoveComponents"): False},
         )
-        assert "Failed to remove" in out
-        assert "Removed" not in out.replace("Failed to remove", "")
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "remove_component_failed"
 
     def test_remove_component_reports_a_component_that_is_not_there(
         self, surface: dict, tmp_path: Path
@@ -521,8 +521,8 @@ class TestNoFalseSuccess:
             tmp_path,
             {("EditorComponentAPIBus", "GetComponentOfType"): Failure()},
         )
-        assert "is not on entity" in out
-        assert "Removed" not in out
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "component_not_on_entity"
 
     def test_set_parent_reports_when_the_parent_did_not_change(
         self, surface: dict, tmp_path: Path
@@ -531,7 +531,28 @@ class TestNoFalseSuccess:
         out = _run_tool(
             "set_parent", surface, tmp_path, {("EditorEntityInfoRequestBus", "GetParent"): "[999]"}
         )
-        assert "Failed to set parent" in out
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "set_parent_failed"
+
+    def test_add_component_reports_an_unknown_type(self, surface: dict, tmp_path: Path) -> None:
+        out = _run_tool(
+            "add_component",
+            surface,
+            tmp_path,
+            {("EditorComponentAPIBus", "FindComponentTypeIdsByEntityType"): []},
+        )
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "component_type_not_found"
+
+    def test_remove_component_reports_an_unknown_type(self, surface: dict, tmp_path: Path) -> None:
+        out = _run_tool(
+            "remove_component",
+            surface,
+            tmp_path,
+            {("EditorComponentAPIBus", "FindComponentTypeIdsByEntityType"): []},
+        )
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "component_type_not_found"
 
     def test_set_parent_confirms_only_after_reading_the_parent_back(
         self, surface: dict, tmp_path: Path
@@ -599,3 +620,19 @@ class TestNoFalseSuccess:
             "Broadcast",
             "CreateNewEntity",
         ) not in log.calls
+
+
+def test_add_component_treats_a_null_type_uuid_as_unknown(surface: dict, tmp_path: Path) -> None:
+    # Live 26.10.0 answers an unknown component name with [null uuid], not [].
+    class NullUuid:
+        def __str__(self) -> str:
+            return "{00000000-0000-0000-0000-000000000000}"
+
+    out = _run_tool(
+        "add_component",
+        surface,
+        tmp_path,
+        {("EditorComponentAPIBus", "FindComponentTypeIdsByEntityType"): [NullUuid()]},
+    )
+    parsed = json.loads(out)
+    assert parsed["status"] == "error" and parsed["code"] == "component_type_not_found"

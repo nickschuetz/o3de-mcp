@@ -177,6 +177,7 @@ def register_introspection_tools(mcp: MCPServer) -> None:
             except Exception as e:
                 result = {
                     'status': 'error',
+                    'code': 'capture_failed',
                     'message': f'Failed to trigger capture: {e}.'
                 }
             print(json.dumps(result))

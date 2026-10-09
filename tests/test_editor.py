@@ -832,16 +832,18 @@ class TestCreateLevelScript:
     )
     def test_nonzero_result_codes_are_errors(self, code: int, reason: str) -> None:
         _, out = self._run(self._script({"name": "MyLevel"}), code)
-        assert out.startswith("ERROR: could not create level 'MyLevel'")
-        assert reason in out
-        assert "Created" not in out
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "create_level_failed"
+        assert parsed["message"].startswith("Could not create level 'MyLevel'")
+        assert reason in parsed["message"]
 
     def test_none_result_is_an_error(self) -> None:
         # The bindings return None, with only a warning in the editor log, when the
         # call does not match the reflected signature.
         _, out = self._run(self._script({"name": "MyLevel"}), None)
-        assert out.startswith("ERROR: could not create level 'MyLevel'")
-        assert "Created" not in out
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "create_level_failed"
+        assert parsed["message"].startswith("Could not create level 'MyLevel'")
 
 
 class TestListLevels:
@@ -999,7 +1001,9 @@ class TestCaptureViewport:
                     mock_output="CAPTURE_ISSUED 7",  # nothing new is written
                 )
             )
-        assert "no new file appeared" in result
+        parsed = json.loads(result)
+        assert parsed["status"] == "error" and parsed["code"] == "capture_not_written"
+        assert "no new file appeared" in parsed["message"]
         assert "300 bytes" not in result
 
     def test_waits_for_a_partially_written_file_to_settle(self, tmp_path: Path) -> None:
@@ -1040,7 +1044,9 @@ class TestCaptureViewport:
                     mock_output="CAPTURE_ISSUED 7",
                 )
             )
-        assert "no new file appeared" in result
+        parsed = json.loads(result)
+        assert parsed["status"] == "error" and parsed["code"] == "capture_not_written"
+        assert "no new file appeared" in parsed["message"]
         # The common cause is named, so the reader is not sent hunting a
         # broken renderer.
         assert "no level is open" in result
@@ -1682,6 +1688,58 @@ class TestStringEntityIdTolerance:
     # A real u64 entity id, past 2**53 where a double would start rounding.
     BIG_ID = "1152921504606846978"
 
+    @pytest.mark.parametrize("value", ["[789]", "789", 789])
+    def test_required_id_accepts_brackets_and_numbers_through_mcp(self, value: object) -> None:
+        # The MCP layer JSON-decodes a string argument unless the parameter is
+        # annotated exactly str, which once turned "[789]" into a list.
+        _, calls, _ = asyncio.run(
+            TestNativeMutationTools._call(
+                "delete_entity", {"entity_id": value}, {"status": "ok", "output": "{}"}
+            )
+        )
+        assert calls[0].kwargs["params"] == {"entity_id": "789"}
+
+    @pytest.mark.parametrize("value", ["[456]", "456", 456])
+    def test_optional_parent_accepts_brackets_and_numbers_through_mcp(self, value: object) -> None:
+        _, calls, _ = asyncio.run(
+            TestNativeMutationTools._call(
+                "create_entity",
+                {"name": "Child", "parent_id": value},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert calls[0].kwargs["params"] == {"name": "Child", "parent_id": "456"}
+
+    def test_optional_parent_accepts_null_as_root(self) -> None:
+        _, calls, _ = asyncio.run(
+            TestNativeMutationTools._call(
+                "create_entity",
+                {"name": "Root", "parent_id": None},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert calls[0].kwargs["params"] == {"name": "Root"}
+
+    def test_validator_accepts_a_number(self) -> None:
+        # Gem 0.5.0 emits ids as JSON numbers; passing one straight back must work.
+        assert _validate_entity_id(1152921504606846978) == self.BIG_ID
+        assert _validate_entity_id(42) == "42"
+
+    def test_validator_rejects_a_bool(self) -> None:
+        with pytest.raises(ValueError):
+            _validate_entity_id(True)
+
+    def test_a_numeric_id_reaches_the_gem_as_the_exact_string(self) -> None:
+        _, calls, scripts = asyncio.run(
+            TestNativeMutationTools._call(
+                "delete_entity",
+                {"entity_id": int(self.BIG_ID)},
+                {"status": "ok", "output": "{}"},
+            )
+        )
+        assert scripts == 0
+        assert calls[0].kwargs["params"] == {"entity_id": self.BIG_ID}
+
     def test_validator_preserves_a_large_u64_id_string(self) -> None:
         assert _validate_entity_id(self.BIG_ID) == self.BIG_ID
         assert _validate_entity_id(f"[{self.BIG_ID}]") == f"[{self.BIG_ID}]"
@@ -1858,7 +1916,8 @@ class TestCreatePrefabFromEntity:
                 str(tmp_path),
             )
 
-        assert "Failed to create prefab" in output
+        parsed = json.loads(output)
+        assert parsed["status"] == "error" and parsed["code"] == "create_prefab_failed"
         assert not (tmp_path / "Prefabs" / "Made.prefab").exists()
 
     def test_creates_prefab(self) -> None:
@@ -1892,7 +1951,8 @@ class TestSavePrefab:
         assert calls == [("PrefabPublicRequestBus", "GetOwningInstancePrefabPath")]
 
         parsed = json.loads(output)
-        assert parsed["status"] == "unsupported"
+        # Nothing is saved, so it is a failure an agent detects with status == "error".
+        assert parsed["status"] == "error"
         assert parsed["code"] == "prefab_save_unavailable"
         assert "create_prefab_from_entity" in parsed["message"]
         assert parsed["owning_prefab"] == "Levels/DefaultLevel/DefaultLevel.prefab"
