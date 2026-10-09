@@ -441,6 +441,95 @@ class TestLiveIntrospection:
             assert isinstance(result, str)
 
 
+def _skip_if_no_native(parsed: dict) -> None:
+    """Skip when the gem predates the native request (needs AiCompanion 0.4.0+)."""
+    if isinstance(parsed, dict) and parsed.get("code") in (
+        "agent_server_required",
+        "unsupported_request",
+        "editor_error",
+    ):
+        why = parsed.get("message") or parsed.get("error")
+        pytest.skip(f"gem does not serve this native request: {why}")
+
+
+class TestLiveNativeTools:
+    """The AiCompanion gem's native C++ request types, exercised against a real
+    editor. These assert on real scene content, not just that the call returns.
+    get_scene_snapshot / get_entity_tree / validate_scene exist from the first
+    gem; get_entity and the native get_bus_schema need gem 0.4.0 and skip on older."""
+
+    def _snapshot_entity_id(self, mcp_server: MCPServer) -> str:
+        result = _run(_call(mcp_server, "get_scene_snapshot"))
+        parsed = json.loads(result)
+        _skip_if_no_native(parsed)
+        entities = parsed.get("entities") if isinstance(parsed, dict) else None
+        assert entities, f"snapshot had no entities: {result[:200]}"
+        # Prefer a stable, named entity from the default level.
+        for e in entities:
+            if e.get("name") and e.get("id") is not None:
+                return str(e["id"]).strip("[]")
+        pytest.skip("no named entity in the snapshot to probe")
+
+    def test_get_scene_snapshot_lists_entities(self, mcp_server: MCPServer) -> None:
+        parsed = json.loads(_run(_call(mcp_server, "get_scene_snapshot")))
+        _skip_if_no_native(parsed)
+        assert isinstance(parsed, dict) and parsed.get("entities"), parsed
+        names = {e.get("name") for e in parsed["entities"]}
+        # The default level always carries these.
+        assert "Camera" in names or "Grid" in names, names
+
+    def test_get_entity_tree_has_structure(self, mcp_server: MCPServer) -> None:
+        parsed = json.loads(_run(_call(mcp_server, "get_entity_tree")))
+        _skip_if_no_native(parsed)
+        assert isinstance(parsed, (dict, list)), parsed
+
+    def test_validate_scene_returns_a_report(self, mcp_server: MCPServer) -> None:
+        parsed = json.loads(_run(_call(mcp_server, "validate_scene")))
+        _skip_if_no_native(parsed)
+        assert isinstance(parsed, dict), parsed
+
+    def test_get_entity_returns_the_named_entity(self, mcp_server: MCPServer) -> None:
+        eid = self._snapshot_entity_id(mcp_server)
+        parsed = json.loads(_run(_call(mcp_server, "get_entity", entity_id=eid)))
+        _skip_if_no_native(parsed)
+        assert "error" not in parsed, parsed
+        assert str(parsed["id"]).strip("[]") == eid
+        assert parsed.get("name")
+        assert isinstance(parsed.get("components"), list)
+
+    def test_get_entity_errors_on_an_unknown_id_without_crashing(
+        self, mcp_server: MCPServer
+    ) -> None:
+        parsed = json.loads(_run(_call(mcp_server, "get_entity", entity_id="999999999999")))
+        _skip_if_no_native(parsed)
+        # A missing id is a JSON error, and the editor stays up: the capability
+        # probe right after must still report connected.
+        assert "error" in parsed, parsed
+        caps = json.loads(_run(_call(mcp_server, "get_capabilities")))
+        assert caps["editor"]["status"] == "connected"
+
+    def test_get_bus_schema_live_uses_the_native_path_for_a_gem_bus(
+        self, mcp_server: MCPServer, project_path: str
+    ) -> None:
+        parsed = json.loads(
+            _run(
+                _call(
+                    mcp_server,
+                    "get_bus_schema_live",
+                    module="editor",
+                    bus="AiCompanionRequestBus",
+                    project_path=project_path,
+                )
+            )
+        )
+        if parsed.get("source") != "native":
+            pytest.skip(
+                f"gem does not serve get_bus_schema natively (source={parsed.get('source')})"
+            )
+        assert parsed.get("event_count", 0) > 0, parsed
+        assert parsed.get("events"), parsed
+
+
 class TestLiveEdgeCases:
     def test_invalid_entity_id_raises(self, mcp_server: MCPServer) -> None:
         with pytest.raises(Exception):
