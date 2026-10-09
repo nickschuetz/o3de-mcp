@@ -20,8 +20,8 @@ See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blo
 - List, create, delete, and duplicate entities; reparent with `set_parent`
 - Add and remove components, get/set component properties, assign assets by path
 - Get and set transforms
-- `create_entity`, `set_transform` and `delete_entity` try the gem's native request types first (gem 0.5.0 or later, validated in C++, available in secure mode) and fall back to editor Python on older gems
-- Create, save, and instantiate prefabs
+- `create_entity`, `set_transform` and `delete_entity` try the gem's native request types first (gem 0.5.0 or later, validated in C++, available in secure mode) and fall back to editor Python on older gems or the legacy transport
+- Create and instantiate prefabs (saving edits back into an existing prefab is not exposed to editor Python; `save_prefab` reports that and names the owning prefab)
 - Create, load, save, and query levels
 - Viewport camera control, entity focus, and screenshot capture
 - Run console commands, get/set CVARs
@@ -233,7 +233,7 @@ Progressive walkthroughs from project creation to a complete game:
 |---|---|---|
 | `O3DE_ENGINE_PATH` | Override automatic engine discovery | Auto-detected from manifest |
 | `O3DE_ENGINE_NAME` | Select engine by name when multiple are registered | First valid engine |
-| `O3DE_PROJECT_PATH` | Select the project for asset and introspection tools | Single registered project |
+| `O3DE_PROJECT_PATH` | Select the project for asset, introspection and `list_levels` tools | Single registered project |
 | `O3DE_EDITOR_HOST` | Editor AgentServer host | `127.0.0.1` |
 | `O3DE_EDITOR_PORT` | Editor AgentServer port | `4600` |
 | `O3DE_EDITOR_TIMEOUT` | Per-command editor execution timeout (seconds) | `600` |

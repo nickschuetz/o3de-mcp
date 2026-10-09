@@ -26,8 +26,10 @@ static geometry — all through MCP tool calls.
 {"tool": "list_entities"}
 ```
 
-Review the response. A fresh level typically has no entities or just a default
-camera.
+Review the response. A level made by `create_level` with its default template
+(`Prefabs/Default_Level.prefab`) already holds an `Atom Default Environment`
+entity with `Sun`, `Ground`, `Camera`, `Grid`, `Shader Ball` and `Global Sky`
+children; a level made from an empty template has no entities.
 
 ### 3. Create the sky and environment
 
@@ -58,13 +60,15 @@ Capture the returned entity ID, then:
 {"tool": "add_component", "arguments": {"entity_id": "<ground_id>", "component_type": "PhysX Primitive Collider"}}
 ```
 
-Set the ground mesh and scale via script:
+Scale the ground via script. A Transform holds only a uniform scale, so the flat
+50 x 50 x 1 plane uses `AddNonUniformScaleComponent`, which adds a Non-uniform
+Scale component and sets it:
 
 ```json
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<ground_id>')\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(50.0, 50.0, 1.0))"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<ground_id>')\neditor.AddNonUniformScaleComponent(eid, math.Vector3(50.0, 50.0, 1.0))"
   }
 }
 ```
@@ -102,7 +106,8 @@ Position the camera:
 {"tool": "list_entities"}
 ```
 
-Expected: `Environment`, `Sun`, `Ground`, `PlayerCamera`, `Building_01`.
+Expected: `Environment`, `Sun`, `Ground`, `PlayerCamera`, `Building_01`,
+alongside any entities the level started with.
 
 ```json
 {"tool": "get_entity_components", "arguments": {"entity_id": "<ground_id>"}}

@@ -67,7 +67,7 @@ missing, set `O3DE_ENGINE_PATH` and try again.
 ### Recipe: Remove unwanted gems
 
 ```
-1. list_gems()                 → see what's enabled
+1. list_project_gems(project_path="<project_path>")  → see what's enabled
 2. disable_gem(gem_name="UnneededGem", project_path="<project_path>")
 3. build_project(project_path="<project_path>")
 ```
@@ -202,11 +202,14 @@ import azlmbr.editor as editor
 import azlmbr.bus as bus
 import azlmbr.entity as entity
 import azlmbr.asset as asset
+import azlmbr.math as math
 
 eid = azlmbr.entity.EntityId('<entity_id>')
+# GetAssetIdByPath takes (path, asset type uuid, auto-register); a null uuid
+# matches any type.
 mesh_asset = asset.AssetCatalogRequestBus(
     bus.Broadcast, 'GetAssetIdByPath',
-    'objects/primitives/cube.fbx.azmodel', False
+    'objects/primitives/cube.fbx.azmodel', math.Uuid(), False
 )
 mesh_t = editor.EditorComponentAPIBus(
     bus.Broadcast, 'FindComponentTypeIdsByEntityType',
@@ -298,7 +301,8 @@ For complex scenes, build incrementally and verify at each step:
    This uses fewer tokens than handling duplicate-creation errors.
 
 3. **Component names are exact**: Use the precise O3DE component names from
-   the [component catalog](components.md). Typos cause silent failures.
+   the [component catalog](components.md). A typo fails with code
+   `component_type_not_found`.
 
 4. **Parent early**: Set `parent_id` at creation time rather than reparenting
    later — it's one call vs. two.

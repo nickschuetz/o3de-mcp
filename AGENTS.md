@@ -54,7 +54,7 @@ Less obvious tools worth knowing:
   the AiCompanion gem's C++ in one call; cheaper than `list_entities` plus per-entity queries.
 - `create_entity` / `set_transform` / `delete_entity`: try the gem's native request types
   first (gem 0.5.0 or later; the gem validates the input and the call works in secure mode)
-  and fall back to editor Python on older gems. The native path answers with the gem's JSON
+  and fall back to editor Python on older gems or the legacy transport. The native path answers with the gem's JSON
   (`{"entity_id": ...}`, the entity, `{"deleted": ...}`); the fallback prints a sentence.
 
 **Treat entity IDs as opaque.** In native tool output an id is a JSON number on gem 0.5.0
@@ -174,7 +174,7 @@ When the editor is not available, you can still manage projects and gems:
 |---------|---------|-------------|
 | `O3DE_ENGINE_PATH` | Auto-detect | Engine install path |
 | `O3DE_ENGINE_NAME` | (none) | Select engine by name when multiple registered |
-| `O3DE_PROJECT_PATH` | Single registered project | Project used by asset and introspection tools |
+| `O3DE_PROJECT_PATH` | Single registered project | Project used by asset, introspection and `list_levels` tools |
 | `O3DE_EDITOR_HOST` | `127.0.0.1` | Editor AgentServer host |
 | `O3DE_EDITOR_PORT` | `4600` | Editor AgentServer port |
 | `O3DE_EDITOR_TIMEOUT` | `600` | Per-command editor execution timeout (seconds) |
@@ -219,9 +219,9 @@ JSON and never an error. No success carries a top-level `status` of `"error"`
 
 Native requests (snapshots, entities, anim graphs) take their `code` from the
 AiCompanion gem: `validation_failed`, `not_found`, `unavailable`, `engine_error`,
-`secure_mode`, `unknown_request_type`, `timeout`, `shutting_down`. Gem 0.5.0 and
-earlier send no code on most refusals, which arrive as `editor_error`; there,
-`get_entity` on a missing id answers with the gem's own
+`secure_mode`, `execution_failed`, `unknown_request_type`, `timeout`,
+`shutting_down`. Gem 0.5.0 and earlier send no code on most refusals, which arrive
+as `editor_error`; there, `get_entity` on a missing id answers with the gem's own
 `{"entity_id": ..., "error": "No entity with id ..."}` instead of the envelope.
 
 Two things fall outside the envelope by design:

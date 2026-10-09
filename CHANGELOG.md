@@ -49,6 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loss and no editor-Python fallback, and a live run against a gem built from
   main round-tripped a past-2^53 id exactly. AGENTS.md documents treating ids as opaque.
 
+### Documentation
+
+- A pre-release audit reconciled the docs with the code:
+  - the architecture diagram gains the utils modules, the introspection to AgentServer
+    edge and the anim graph native types;
+  - the native-first fallback conditions are stated precisely, the gem versions of the
+    native types are corrected, and the gem's error codes are listed;
+  - `recipes.md` calls `GetAssetIdByPath` with its reflected three arguments and lists
+    enabled gems with `list_project_gems`;
+  - the examples and the agent skill show real `get_capabilities` and `list_projects`
+    output, reflected bus calls only, and current tool counts;
+  - the README no longer claims `save_prefab` saves;
+  - `docs/releasing.md` makes the documentation audit a required release gate.
+
 ### Testing
 
 - The azlmbr surface harness now checks that a tool's generated script calls each reflected function with the correct number of arguments, not just that the function exists. The reflection dump records each function's arity; a wrong-arity call now fails the surface test. This is the class of bug `create_level` shipped with (a six-argument engine function called with two) that the name-only check could not catch.
