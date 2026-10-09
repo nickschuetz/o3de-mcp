@@ -8,7 +8,7 @@ See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blo
 
 ## Features
 
-77 tools across seven categories. See [`docs/tool-reference.md`](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/tool-reference.md) for every parameter.
+86 tools across seven categories. See [`docs/tool-reference.md`](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/tool-reference.md) for every parameter.
 
 **Capability Detection** (1 tool):
 - `get_capabilities`: check editor connectivity, whether the AiCompanion gem's AgentServer is answering (with its gem, API and protocol versions), and CLI availability before using other tools
@@ -51,8 +51,9 @@ See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blo
 - Add nodes (Director, Event, entity, component) and control playback (play, stop)
 - Editor Python over `azlmbr.legacy.trackview`, no gem needed. Track and keyframe authoring are not exposed (the reflected API makes them unreliable to drive)
 
-**Animation** (2 tools, requires a running editor):
+**Animation** (11 tools, requires a running editor):
 - List the EMotion FX anim graphs the engine holds and describe one in full: nodes, ports and connections, transitions with conditions, parameters
+- Author anim graphs: create, load, save and remove graphs; add and remove nodes (state machines, motion nodes, blend trees); set a state machine's entry state; add and remove parameters
 - Native reads through the AiCompanion gem (gem main or 0.6.0+, plus the EMotionFX gem); they work in the gem's secure mode
 
 ## Prerequisites
@@ -207,7 +208,7 @@ GitHub Actions runs lint, type checking, tests, and SBOM generation on every pus
 |----------|----------|-------------|
 | [AGENTS.md](https://github.com/nickschuetz/o3de-mcp/blob/main/AGENTS.md) | AI agents | Token-efficient usage guide, decision trees, error handling |
 | [docs/architecture.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/architecture.md) | Developers & agents | System architecture diagram and communication flows |
-| [docs/tool-reference.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 77 tools |
+| [docs/tool-reference.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/tool-reference.md) | Agents & developers | Compact parameter reference for all 86 tools |
 | [docs/recipes.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/recipes.md) | Agents & developers | Composable patterns for scenes, physics, lighting, scripting |
 | [docs/components.md](https://github.com/nickschuetz/o3de-mcp/blob/main/docs/components.md) | Agents & developers | O3DE component name catalog with dependency chains |
 | [skills/o3de-headless-and-editor-automation/](https://github.com/nickschuetz/o3de-mcp/blob/main/skills/o3de-headless-and-editor-automation/SKILL.md) | AI agents | Installable skill (Windows and Linux): render capture, editor automation, offline asset GUIDs, ScriptContext proofs, and the traps around each |

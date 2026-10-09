@@ -510,11 +510,16 @@ Stop the sequence currently playing. No parameters.
 
 ## Animation Tools
 
-EMotion FX anim graph reads over the AiCompanion gem's native C++ request types. They
-need gem main or 0.6.0+ and the EMotionFX gem; an older gem answers with code
+EMotion FX anim graph reads and authoring over the AiCompanion gem's native C++ request
+types. They need gem main or 0.6.0+ and the EMotionFX gem; an older gem answers with code
 `unknown_request_type`. Native only (no editor-Python fallback); they work in secure
-mode. Graph ids are 32-bit numbers; node, transition and entity ids in the output are
-decimal strings.
+mode. Graph ids are 32-bit numbers; node, transition and entity ids are decimal strings.
+
+Authoring writes refuse a graph owned by an asset or a running actor instance
+(`validation_failed`), so author on a graph from `create_anim_graph` or `load_anim_graph`.
+Each write is one step in the Animation Editor's own undo history; the `undo` tool does
+not revert it. `save_anim_graph` is not undoable. Parameter objects report `default`,
+`min` and `max` in the engine's text form (for example `"0.50000000"`).
 
 ### list_anim_graphs
 
@@ -532,6 +537,91 @@ Describe one graph: `nodes` (type, parent, position, ports, connections),
 |-------|------|----------|-------------|
 | `anim_graph_id` | int or str | one of | Graph id from `list_anim_graphs` (number or digit string, 32-bit) |
 | `file_name` | str | one of | Graph file name; exact match first, then its tail case-insensitively |
+
+### create_anim_graph
+
+Create a new, empty, in-memory graph to author (just its root state machine). Returns
+`{"id", "file_name": ""}`. No parameters.
+
+### remove_anim_graph
+
+Remove a graph from the engine (not its file). Returns `{"removed": <id>}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+
+### load_anim_graph
+
+Load an `.animgraph` file so it can be authored. Returns `{"id", "file_name"}`; a file
+already loaded this way returns the existing id.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file_name` | str | yes | Absolute path, `@alias@` path, or path relative to the project |
+
+### save_anim_graph
+
+Save a graph to disk. The file must land inside the project root. Not undoable.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `file_name` | str | no | Target path; omit to save to the graph's current file |
+
+### add_anim_graph_node
+
+Add a node. Returns the node object as `get_anim_graph` emits it. An unknown type is
+refused with the list of known types.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `node_type` | str | yes | RTTI or palette name, case-insensitive (`AnimGraphMotionNode`, `AnimGraphStateMachine`, `BlendTree`, ...) |
+| `parent_id` | int or str | no | Parent node id (state machine or blend tree); default the root |
+| `name` | str | no | Node name; engine-generated when omitted |
+| `position` | [int, int] | no | Graph-canvas position in pixels |
+
+### remove_anim_graph_node
+
+Remove a node and its children; the root is refused. Returns `{"removed": "<node id>"}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `node_id` | int or str | yes | Node id |
+
+### set_anim_graph_entry_state
+
+Make a node the entry state of its state machine. Returns `{"entry_state_id": "<id>"}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `node_id` | int or str | yes | A node that can act as a state |
+
+### add_anim_graph_parameter
+
+Add a value parameter. Returns the parameter object as `get_anim_graph` emits it.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `name` | str | yes | Parameter name |
+| `parameter_type` | str | yes | `Float` (slider), `FloatSpinner`, `Int` (slider), `IntSpinner`, `Bool`, `String`, `Tag`, `Vector2`, `Vector3`, `Vector3Gizmo`, `Vector4`, `Color`, `Rotation`, or the class name |
+| `default` | number, bool, str or list | no | Default value; a list of numbers for vector, color and rotation types |
+| `min` / `max` | number or list | no | Range; ranged types only (Float, Int, Vector2/3/4, Color, Rotation) |
+| `description` | str | no | Description |
+| `group` | str | no | Group; created when missing |
+
+### remove_anim_graph_parameter
+
+Remove a value parameter; groups are refused. Returns `{"removed": "<name>"}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `anim_graph_id` | int or str | yes | Graph id |
+| `name` | str | yes | Parameter name |
 
 ## Project Tools
 
