@@ -60,9 +60,11 @@ Capture the returned entity ID, then:
 {"tool": "add_component", "arguments": {"entity_id": "<ground_id>", "component_type": "PhysX Primitive Collider"}}
 ```
 
-Give it a flat mesh and size it. An O3DE Transform holds only a uniform scale
-(`set_transform` refuses a non-uniform one), so start from a flat mesh: the
-engine's 4 x 4 m ground plane, scaled uniformly by 12.5, is a 50 x 50 m ground.
+Give it a flat mesh and size it. The engine's 4 x 4 m ground plane, scaled
+uniformly by 12.5, is a 50 x 50 m ground. `set_transform` also takes a
+non-uniform `[x, y, z]` scale on the AiCompanion gem 0.6.0 (gem API 0.5.0) and
+later, which applies it through the engine's Non-uniform Scale component; older
+gems refuse a non-uniform scale with `non_uniform_scale_unsupported`.
 
 ```json
 {"tool": "assign_asset", "arguments": {"entity_id": "<ground_id>", "component_type": "Mesh", "property_path": "Controller|Configuration|Model Asset", "asset_path": "objects/shaderball/ground_plane_4x4m.fbx.azmodel"}}
@@ -83,12 +85,7 @@ component itself rather than through the scale.
 Position the camera:
 
 ```json
-{
-  "tool": "run_editor_python",
-  "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<cam_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, -10.0, 5.0))"
-  }
-}
+{"tool": "set_transform", "arguments": {"entity_id": "<cam_id>", "position": [0.0, -10.0, 5.0]}}
 ```
 
 ### 7. Add some static objects

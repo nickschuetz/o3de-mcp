@@ -251,7 +251,8 @@ def register_project_tools(mcp: MCPServer) -> None:
         """List all O3DE projects registered on this machine.
 
         Returns:
-            JSON array of project objects, or a message if none are found.
+            JSON array of project objects, or the error ``no_projects`` if none
+            are registered.
         """
         projects = list_registered_projects()
         if not projects:
@@ -263,7 +264,8 @@ def register_project_tools(mcp: MCPServer) -> None:
         """List all external gems registered on this machine.
 
         Returns:
-            JSON array of gem objects, or a message if none are found.
+            JSON array of gem objects, or the error ``no_gems`` if none are
+            registered.
         """
         gems = list_registered_gems()
         if not gems:

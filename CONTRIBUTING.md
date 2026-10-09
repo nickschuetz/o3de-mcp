@@ -58,7 +58,12 @@ Follow the `register_*_tools(mcp: MCPServer)` pattern:
 Requirements:
 
 - **Validate all user inputs at tool boundaries.** See existing validators in `editor.py` and `project.py` for examples.
-- **Never interpolate raw user strings into editor Python scripts.** Use `json.dumps`/`json.loads` round-trip to safely pass values into `pyRunScript` commands.
+- **Never interpolate raw user strings into editor Python scripts.** Use a `json.dumps`/`json.loads` round-trip to pass values into the script. Scripts are sent to the AiCompanion gem's AgentServer as framed `execute_python` requests; `pyRunScript` is only the legacy RemoteConsole fallback.
+- **Report every failure with the one envelope** `{"status": "error", "code": "<slug>", "message": "<text>"}`: `format_error` from `utils/errors.py` in server code, and `_o3de_fail(code, message)` inside generated editor scripts. Never print a plain-text failure.
+- **Get entities in editor scripts with `_resolve_entity_id(id)`**, which finds the entity's own id object through the search bus. Never build an id with `entity.EntityId(n)`: on O3DE 26.10.0 it gives an invalid id for every `n`.
+- **Annotate entity-id parameters with `EntityIdArg` or `OptionalEntityIdArg`** from `tools/editor.py`, not `int | str`, so a bracketed id like `"[1234]"` is not JSON-decoded into a list.
+- **Keep the surface test passing.** `tests/test_editor_scripts.py` runs every generated editor script against the reflected `azlmbr` surface in `tests/data/azlmbr_surface.json`; check that file before calling a bus event or function the tools do not already use.
+- **Add a live test for any new editor-side path** in `tests/test_live_editor.py`, and run it with `scripts/live-sandbox.sh` (see `docs/releasing.md`). A mocked test proves only that the tool dispatches.
 
 ## Security
 

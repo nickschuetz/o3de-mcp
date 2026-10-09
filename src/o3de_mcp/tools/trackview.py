@@ -86,8 +86,8 @@ def register_trackview_tools(mcp: MCPServer) -> None:
     async def list_sequences() -> str:
         """List the Track View cinematic sequences in the current level.
 
-        Returns a JSON array of ``{"name": ..., "start": ..., "end": ...}`` objects,
-        one per sequence, with each sequence's time range in seconds.
+        Returns ``{"sequences": [{"name", "start", "end"}, ...], "count": N}``,
+        with each sequence's time range in seconds.
         """
         script = textwrap.dedent("""\
             import azlmbr.legacy.trackview as tv

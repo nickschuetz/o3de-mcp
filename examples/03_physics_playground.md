@@ -25,12 +25,7 @@ Add dynamic physics objects to a scene — crates, balls, and trigger zones.
 Position it above the ground so it falls when play mode starts:
 
 ```json
-{
-  "tool": "run_editor_python",
-  "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<crate_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 10.0))"
-  }
-}
+{"tool": "set_transform", "arguments": {"entity_id": "<crate_id>", "position": [0.0, 0.0, 10.0]}}
 ```
 
 ### 2. Batch-create a stack of crates
@@ -77,12 +72,7 @@ A trigger zone detects when entities enter/exit without blocking them:
 Configure it as a trigger:
 
 ```json
-{
-  "tool": "run_editor_python",
-  "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\n\neid = entity.EntityId('<zone_id>')\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|IsTrigger', True)\nprint('GoalZone configured as trigger')"
-  }
-}
+{"tool": "set_component_property", "arguments": {"entity_id": "<zone_id>", "component_type": "PhysX Primitive Collider", "property_path": "Collider Configuration|Trigger", "value": "true"}}
 ```
 
 ### 4. Create a bouncing ball
@@ -94,15 +84,12 @@ Configure it as a trigger:
 {"tool": "add_component", "arguments": {"entity_id": "<ball_id>", "component_type": "PhysX Dynamic Rigid Body"}}
 ```
 
-Set the collider shape to sphere and configure restitution for bouncing:
+Position it, and set the collider shape to a sphere (the `Shape` value `0` is
+the engine's `ShapeType` Sphere):
 
 ```json
-{
-  "tool": "run_editor_python",
-  "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.components as comp\nimport azlmbr.math as math\nimport azlmbr.entity as entity\n\neid = entity.EntityId('<ball_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(5.0, 0.0, 15.0))\ncollider_types = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, collider_types[0])\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'PhysX Primitive Collider|Shape|Shape Configuration|Sphere', True)\nprint('Ball configured')"
-  }
-}
+{"tool": "set_transform", "arguments": {"entity_id": "<ball_id>", "position": [5.0, 0.0, 15.0]}}
+{"tool": "set_component_property", "arguments": {"entity_id": "<ball_id>", "component_type": "PhysX Primitive Collider", "property_path": "Shape Configuration|Shape", "value": "0"}}
 ```
 
 ### 5. Verify physics setup

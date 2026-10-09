@@ -31,7 +31,7 @@ See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blo
 
 **Engine Introspection** (3 tools):
 - EBus schema discovery, both from generated `azlmbr` stubs and live from the editor
-- RenderDoc frame capture
+- RenderDoc frame capture (on O3DE 26.10.0 the editor does not expose it to Python, so the tool reports the manual steps)
 
 **Project & Build Management** (17 tools, CLI-based, no editor required):
 - Discover local O3DE engine installations (multi-engine support), register engines, select the active one

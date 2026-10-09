@@ -21,7 +21,7 @@ differ (use raw strings for Windows paths). Useful `azlmbr` calls for wiring com
 
 ## Channel 2 — o3de-mcp + AiCompanion gem
 
-- o3de-mcp (https://github.com/nickschuetz/o3de-mcp) exposes 92 tools:
+- o3de-mcp (https://github.com/nickschuetz/o3de-mcp) exposes 96 tools:
   - Editor (41): entity and component CRUD, transforms, prefabs, levels,
     viewport/camera, console/CVARs, game mode, `run_editor_python`, persistent
     sessions (`begin_session` / `exec_in_session` / `end_session`), native scene
@@ -39,9 +39,14 @@ differ (use raw strings for Windows paths). Useful `azlmbr` calls for wiring com
     `disconnect_anim_graph_ports`.
   - Introspection (3): `get_bus_schema`, `get_bus_schema_live`,
     `capture_renderdoc_frame`.
-  - Project/build (17), AP and logs (5), and `get_capabilities`.
-  - `get_capabilities` counts the editor, Track View and anim graph tools
-    together as `editor_tools` (66).
+  - Assets (9): 5 that work without the editor (`get_asset_processor_status`,
+    `wait_for_assets`, `refresh_assets`, `tail_log`, `get_log_errors`) and 4
+    per-asset readiness tools that need it and gem 0.6.0+ (`get_asset_status`,
+    `get_asset_jobs`, `get_asset_processor_connection`, `wait_for_asset`).
+  - Project/build (17) and `get_capabilities`.
+  - `get_capabilities` counts the editor, Track View and anim graph tools and
+    the 4 readiness tools together as `editor_tools` (70); its `asset_tools` (5)
+    are the ones that work without the editor.
 - AiCompanion gem (https://github.com/nickschuetz/o3de-ai-companion-gem, gem name
   `AiCompanion`) hosts the AgentServer on port 4600 that o3de-mcp talks to, plus
   the `ai_companion` Python API (builders, templates, snapshot, validation).
@@ -50,16 +55,21 @@ differ (use raw strings for Windows paths). Useful `azlmbr` calls for wiring com
   `editor.agent_server` versions means the gem answered `get_api_version`; a bare
   "connected" with `ai_companion_gem: false` is a legacy RemoteConsole with no gem,
   so `import ai_companion` will fail there.
-- `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and all
-  17 anim graph tools are native only: they return the gem's C++ output without
-  editor Python, so they still work when the gem's secure mode disables
-  `execute_python`. The snapshot reads are cheaper than `list_entities` plus
-  per-entity calls.
+- `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene`, all
+  17 anim graph tools and the 4 per-asset readiness tools are native only: they
+  return the gem's C++ output without editor Python, so they still work when the
+  gem's secure mode disables `execute_python`. The snapshot reads are cheaper
+  than `list_entities` plus per-entity calls.
 - `create_entity`, `set_transform`, `delete_entity` and `get_bus_schema_live` try
   their native request first and fall back to editor Python on an older gem or
   the legacy RemoteConsole transport. A native refusal from the three mutation
   tools is returned as an error, never retried through Python;
   `get_bus_schema_live` also falls back on an unknown bus, and then to the stubs.
+- `set_transform` on gem API 0.5.0+ (gem 0.6.0) sends the rotation quaternion
+  and a non-uniform `[x, y, z]` scale natively; the gem applies that scale
+  through the engine's Non-uniform Scale component. On older gems it sends Euler
+  degrees, uses editor Python for a rotation at a gimbal pole, and refuses a
+  non-uniform scale with `non_uniform_scale_unsupported`.
 - For multi-step authoring, open one session and `exec_in_session` each step;
   the editor's main thread drains between requests (this avoids the SetName race
   the single-script form hits), and imports persist across steps.
@@ -75,9 +85,9 @@ differ (use raw strings for Windows paths). Useful `azlmbr` calls for wiring com
   box (`Xvfb :99 -screen 0 1600x900x24 -nocursor`, then `DISPLAY=:99 Editor ...`).
   `--rhi=vulkan --rhi-device-validation=disable` works on both OSes.
 - The editor throttles frames when its window is not focused. Set CVar
-  `ed_keepEditorActive 1` (console, or `run_console` over the remote console) so
-  frames advance while the window is unfocused/headless; otherwise automation
-  appears to hang.
+  `ed_keepEditorActive 1` (console, or o3de-mcp's `set_cvar` or
+  `run_console_command`) so frames advance while the window is
+  unfocused/headless; otherwise automation appears to hang.
 - A phantom engine registration in `~/.o3de/o3de_manifest.json` (e.g. a pip/venv
   `o3de` python package path listed under `engines` with the same name+version as
   the real SDK) makes AP pick the wrong root and crash-loop with "no platforms

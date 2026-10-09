@@ -590,6 +590,10 @@ def _get_tls_context() -> ssl_module.SSLContext | None:
         ca_path = os.environ.get("O3DE_EDITOR_TLS_CA")
         if ca_path:
             ctx.load_verify_locations(ca_path)
+        else:
+            # Without a CA file, verify against the system's trusted CAs; a bare
+            # PROTOCOL_TLS_CLIENT context trusts nothing, so every handshake failed.
+            ctx.load_default_certs()
 
     return ctx
 
@@ -1147,8 +1151,11 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
         Served natively by the AiCompanion gem's C++ (``get_entity`` request
         type, gem 0.4.0 or later) with no editor Python, so it is the cheapest
-        way to look at a single entity and works in the gem's secure mode. An
-        unknown id returns a JSON object with an ``error`` field.
+        way to look at a single entity and works in the gem's secure mode. On
+        gem 0.6.0 the reply also carries ``non_uniform_scale`` and
+        ``effective_scale``, and ids are decimal strings. An unknown id is the
+        error ``not_found`` (gem 0.5.0 and earlier answered with the gem's own
+        ``{"entity_id": ..., "error": ...}`` object instead).
         """
         entity_id = _validate_entity_id(entity_id)
         return await _native_request("get_entity", {"entity_id": entity_id.strip("[]")})
@@ -1301,10 +1308,9 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
             _params = json.loads({params!r})
             # DuplicateEntitiesInInstance needs the editor's own EntityId object: an id
-            # rebuilt with EntityId(int(...)) passes IsValid() but GetCulledEntityHierarchy
-            # returns nothing for it, so duplication fails with "empty list of input
-            # entities". Take the id straight from the entity search instead of the shared
-            # resolver, which would rebuild it.
+            # rebuilt with EntityId(int(...)) is not usable (on 26.10.0 it is invalid for
+            # every n), so duplication would fail with "empty list of input entities".
+            # Take the id object straight from the entity search.
             _wanted = str(_params['entity_id']).strip('[]')
             eid = None
             _all = entity.SearchBus(bus.Broadcast, 'SearchEntities', entity.SearchFilter())
@@ -1424,27 +1430,14 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 _o3de_fail('component_type_not_found', f'Component type "{{comp_type}}" not found')
             else:
                 tid = type_ids[0]
-                # O3DE 2510+: AddComponentOfType (singular) via Broadcast
-                try:
-                    outcome = editor.EditorComponentAPIBus(
-                        bus.Broadcast, 'AddComponentOfType', eid, tid
-                    )
-                    if hasattr(outcome, 'IsSuccess'):
-                        if outcome.IsSuccess():
-                            print(f'Added {{comp_type}} to {{eid}}')
-                        else:
-                            err = outcome.GetError() if hasattr(outcome, 'GetError') else 'unknown'
-                            _o3de_fail(
-                                'add_component_failed',
-                                f'Failed to add {{comp_type}}: {{err}}')
-                    else:
-                        print(f'Added {{comp_type}} to {{eid}}')
-                except Exception:
-                    # Fallback: legacy AddComponentsOfType via Event bus
-                    editor.EditorComponentAPIBus(
-                        bus.Event, 'AddComponentsOfType', eid, type_ids
-                    )
+                outcome = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'AddComponentOfType', eid, tid
+                )
+                if hasattr(outcome, 'IsSuccess') and outcome.IsSuccess():
                     print(f'Added {{comp_type}} to {{eid}}')
+                else:
+                    err = outcome.GetError() if hasattr(outcome, 'GetError') else outcome
+                    _o3de_fail('add_component_failed', f'Failed to add {{comp_type}}: {{err}}')
         """)
         return await _async_run_editor_script(script)
 
@@ -1478,40 +1471,42 @@ def register_editor_tools(mcp: MCPServer) -> None:
             _params = json.loads({params!r})
             eid = _resolve_entity_id(_params['entity_id'])
 
-            value = None
-            # O3DE 2510+: resolve EntityComponentIdPair, then get property
             type_ids = editor.EditorComponentAPIBus(
                 bus.Broadcast, 'FindComponentTypeIdsByEntityType',
                 [_params['component_type']], entity.EntityType().Game
             )
-            try:
-                if type_ids:
-                    outcome = editor.EditorComponentAPIBus(
-                        bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
-                    )
-                    if hasattr(outcome, 'IsSuccess') and outcome.IsSuccess():
-                        pair = outcome.GetValue()
-                        prop = editor.EditorComponentAPIBus(
-                            bus.Broadcast, 'GetComponentProperty', pair,
-                            _params['property_path']
-                        )
-                        if hasattr(prop, 'IsSuccess') and prop.IsSuccess():
-                            value = prop.GetValue()
-                        elif hasattr(prop, 'IsSuccess'):
-                            value = None
-                        else:
-                            value = prop
-                    else:
-                        raise RuntimeError('GetComponentOfType failed')
-                else:
-                    raise RuntimeError('type not found')
-            except Exception:
-                # Fallback: legacy API with bare EntityId
-                value = editor.EditorComponentAPIBus(
-                    bus.Event, 'GetComponentProperty', eid,
-                    _params['property_path']
+            _null = '00000000-0000-0000-0000-000000000000'
+            pair = None
+            if not type_ids or _null in str(type_ids[0]):
+                _o3de_fail(
+                    'component_type_not_found',
+                    f'Component type "{{_params["component_type"]}}" not found',
                 )
-            print(json.dumps({{'property': _params['property_path'], 'value': str(value)}}))
+            else:
+                found = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
+                )
+                if hasattr(found, 'IsSuccess') and found.IsSuccess():
+                    pair = found.GetValue()
+                else:
+                    _o3de_fail(
+                        'component_not_on_entity',
+                        f'Component "{{_params["component_type"]}}" is not on entity {{eid}}',
+                    )
+            if pair is not None:
+                prop = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'GetComponentProperty', pair, _params['property_path']
+                )
+                if hasattr(prop, 'IsSuccess') and prop.IsSuccess():
+                    print(json.dumps({{
+                        'property': _params['property_path'], 'value': str(prop.GetValue()),
+                    }}))
+                else:
+                    _why = prop.GetError() if hasattr(prop, 'GetError') else prop
+                    _o3de_fail(
+                        'get_property_failed',
+                        f'Could not read {{_params["property_path"]}}: {{_why}}',
+                    )
         """)
         return await _async_run_editor_script(script)
 
@@ -1560,35 +1555,40 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 except ValueError:
                     val = raw
 
-            # O3DE 2510+: resolve EntityComponentIdPair, then set property
             type_ids = editor.EditorComponentAPIBus(
                 bus.Broadcast, 'FindComponentTypeIdsByEntityType',
                 [_params['component_type']], entity.EntityType().Game
             )
-            success = False
-            try:
-                if type_ids:
-                    outcome = editor.EditorComponentAPIBus(
-                        bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
-                    )
-                    if hasattr(outcome, 'IsSuccess') and outcome.IsSuccess():
-                        pair = outcome.GetValue()
-                        result = editor.EditorComponentAPIBus(
-                            bus.Broadcast, 'SetComponentProperty', pair,
-                            _params['property_path'], val
-                        )
-                        print(f'Set {{_params["property_path"]}} = {{val}} (result={{result}})')
-                        success = True
-            except Exception:
-                pass
-
-            if not success:
-                # Fallback: legacy API with bare EntityId
-                result = editor.EditorComponentAPIBus(
-                    bus.Event, 'SetComponentProperty', eid,
-                    _params['property_path'], val
+            _null = '00000000-0000-0000-0000-000000000000'
+            pair = None
+            if not type_ids or _null in str(type_ids[0]):
+                _o3de_fail(
+                    'component_type_not_found',
+                    f'Component type "{{_params["component_type"]}}" not found',
                 )
-                print(f'Set {{_params["property_path"]}} = {{val}} (result={{result}})')
+            else:
+                found = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'GetComponentOfType', eid, type_ids[0]
+                )
+                if hasattr(found, 'IsSuccess') and found.IsSuccess():
+                    pair = found.GetValue()
+                else:
+                    _o3de_fail(
+                        'component_not_on_entity',
+                        f'Component "{{_params["component_type"]}}" is not on entity {{eid}}',
+                    )
+            if pair is not None:
+                result = editor.EditorComponentAPIBus(
+                    bus.Broadcast, 'SetComponentProperty', pair, _params['property_path'], val
+                )
+                if hasattr(result, 'IsSuccess') and result.IsSuccess():
+                    print(f'Set {{_params["property_path"]}} = {{val}}')
+                else:
+                    _why = result.GetError() if hasattr(result, 'GetError') else result
+                    _o3de_fail(
+                        'set_property_failed',
+                        f'Could not set {{_params["property_path"]}} to {{val!r}}: {{_why}}',
+                    )
         """)
         return await _async_run_editor_script(script)
 
@@ -1745,24 +1745,25 @@ def register_editor_tools(mcp: MCPServer) -> None:
         """Set the world transform of an entity (only provided components are changed).
 
         ``rotation`` is an ``[x, y, z, w]`` quaternion and ``scale`` an
-        ``[x, y, z]`` vector. Tries the gem's native ``set_transform`` request
-        first (gem 0.5.0 or later, works in secure mode), converting the
-        quaternion to the XYZ Euler degrees it takes and a uniform scale to
-        its single number; it returns the updated entity's JSON verbatim (the
-        same shape as ``get_entity``). The gem refuses an unknown entity, an
-        out-of-bounds position or a scale outside (0, 1000], and that is
-        returned as an error. Older gems, the legacy transport and a rotation
-        at a gimbal pole (pitch within 0.02 degrees of plus or minus 90) use the
-        editor-Python path, which applies the quaternion directly, keeps the
-        current scale when none is given, and prints
-        ``Transform set for entity [<id>]``. An all-zero quaternion is rejected
-        before either path.
+        ``[x, y, z]`` vector, the effective scale to end up with (each element in
+        (0, 1000]). The call goes to the AiCompanion gem's native
+        ``set_transform`` request (works in secure mode) and returns the updated
+        entity's JSON, the same shape as ``get_entity``. The gem refuses an
+        unknown entity or out-of-bounds values, and that is returned as an error.
 
-        An O3DE Transform holds only a uniform scale, and the Non-uniform Scale
-        component cannot be added from editor Python, so a ``scale`` whose
-        three values differ is refused with the error
-        ``non_uniform_scale_unsupported`` instead of being applied as its
-        largest value.
+        On gem API 0.5.0 and later (gem 0.6.0) the quaternion and the scale are
+        sent as is. A non-uniform scale is applied through the engine's
+        Non-uniform Scale component (each element at least 0.01); an O3DE
+        Transform itself holds only a uniform scale. A later uniform scale sets
+        that component back to 1. The reply carries ``scale`` (uniform),
+        ``non_uniform_scale`` and ``effective_scale``.
+
+        On older gems the quaternion is converted to XYZ Euler degrees, a
+        rotation at a gimbal pole (pitch within 0.02 degrees of plus or minus 90)
+        goes through editor Python instead, which prints
+        ``Transform set for entity [<id>]``, and a non-uniform scale is refused
+        with ``non_uniform_scale_unsupported``. The legacy transport also uses
+        the editor-Python path. An all-zero quaternion is rejected before any path.
         """
         entity_id = _validate_entity_id(entity_id)
         pos = _validate_vec3(position, "position") if position is not None else None
@@ -1997,6 +1998,7 @@ def register_editor_tools(mcp: MCPServer) -> None:
             cvar_name = _params['name']
 
             value = None
+            _cvar_error = None
             try:
                 import azlmbr.legacy.general as general
                 value = general.get_cvar(cvar_name)
@@ -2014,9 +2016,15 @@ def register_editor_tools(mcp: MCPServer) -> None:
                     if value is None:
                         value = output
                 except Exception as e:
-                    value = f'Error: {{e}}'
+                    _cvar_error = e
 
-            print(json.dumps({{'name': cvar_name, 'value': value}}))
+            if value is None and _cvar_error is not None:
+                _o3de_fail('get_cvar_failed', f'Could not read {{cvar_name}}: {{_cvar_error}}')
+            elif value == '(missing)':
+                # The engine answers this literal text for a CVAR it does not have.
+                _o3de_fail('cvar_not_found', f'No CVAR named {{cvar_name}}')
+            else:
+                print(json.dumps({{'name': cvar_name, 'value': value}}))
         """)
         return await _async_run_editor_script(script)
 
@@ -2263,22 +2271,28 @@ def register_editor_tools(mcp: MCPServer) -> None:
             import json
 
             result = {}
+            _errors = []
             try:
                 pos = general.get_current_view_position()
                 if pos is not None:
                     result['position'] = [pos.x, pos.y, pos.z]
             except Exception as e:
-                result['error'] = str(e)
+                _errors.append(f'position: {e}')
 
             try:
                 rot = general.get_current_view_rotation()
                 if rot is not None:
                     result['rotation'] = [rot.x, rot.y, rot.z]
             except Exception as e:
-                if 'error' not in result:
-                    result['error'] = str(e)
+                _errors.append(f'rotation: {e}')
 
-            print(json.dumps(result))
+            if _errors or not result:
+                _o3de_fail(
+                    'viewport_camera_unavailable',
+                    '; '.join(_errors) or 'the editor reported no viewport camera',
+                )
+            else:
+                print(json.dumps(result))
         """)
         return await _async_run_editor_script(script)
 
@@ -2353,16 +2367,19 @@ def register_editor_tools(mcp: MCPServer) -> None:
     ) -> str:
         """Capture a screenshot of the editor viewport.
 
-        Tries PySide6 widget grab first (captures the viewport widget
-        including UI overlays). Falls back to ``azlmbr.atom``
-        ``FrameCaptureRequestBus.CaptureScreenshot`` which captures the
-        actual rendered frame and works on platforms where PySide6 is not
-        importable in the editor's embedded interpreter.
+        Captures the rendered frame with Atom's
+        ``FrameCaptureRequestBus.CaptureScreenshot``, then waits on the client
+        for a new, fully written file (``O3DE_CAPTURE_WAIT``, default 15 s). A
+        level must be open: without one the engine accepts the capture and never
+        writes a file, which is reported as ``capture_not_written``. A PySide6
+        widget grab is tried first, but it cannot run in the editor's embedded
+        interpreter on O3DE 26.10.0 (``QApplication.instance()`` is ``None``).
 
         Args:
             output_path: File path for the screenshot (.png, .jpg, .jpeg, .bmp, or .tga).
-            width: Optional width to scale the screenshot to (PySide6 path only).
-            height: Optional height to scale the screenshot to (PySide6 path only).
+            width: Scale width for the PySide6 grab only; ignored by the Atom
+                capture, so it has no effect on 26.10.0.
+            height: Scale height for the PySide6 grab only; ignored like ``width``.
         """
         output_path = output_path.strip()
         if not output_path:
@@ -2618,8 +2635,11 @@ def register_editor_tools(mcp: MCPServer) -> None:
                            ' The call was not made, because instantiating a missing'
                            ' prefab crashes the editor.')
             else:
+                # Look the parent up by its text: entity.EntityId(n) does not rebuild
+                # an id on 26.10.0, so the parent was silently ignored. An unknown
+                # parent is entity_not_found.
                 if _parent_id:
-                    parent = entity.EntityId(_parent_id)
+                    parent = _resolve_entity_id(_parent_id)
                 else:
                     parent = entity.EntityId()
 
