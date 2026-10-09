@@ -883,7 +883,10 @@ Returns JSON: `{"running": bool, "log_dir": "...", "project": "..."}`
 
 ### wait_for_assets
 
-Wait for the Asset Processor to finish processing (or until timeout).
+Wait for the Asset Processor process to exit (or until timeout). It watches for the process
+to stop, not for it to go idle: suited to a one-off AssetProcessorBatch run. A GUI Asset
+Processor running beside the editor stays up while idle, so this then waits out the
+timeout and returns `completed: false`.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -905,7 +908,7 @@ Read the last N lines of an O3DE log file.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `log_name` | str | yes | Log name: `Editor`, `AssetProcessor`, `CMakeOutput` |
+| `log_name` | str | yes | Log file in `<project>/user/log`: `Editor`, `AP_GUI`, `AP_Batch` (`.log` optional) |
 | `lines` | int | no | Number of lines (default: 50) |
 | `filter` | str | no | Regex pattern to filter lines |
 | `project_path` | str | no | Project path (auto-resolves if omitted) |

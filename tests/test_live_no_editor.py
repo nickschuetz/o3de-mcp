@@ -204,6 +204,12 @@ class TestProjectTools:
 
 
 class TestAssetTools:
+    @staticmethod
+    def _require_log(project_path: str, name: str) -> None:
+        """Skip when the project has no such log yet; otherwise the call must succeed."""
+        if not (Path(project_path) / "user" / "log" / f"{name}.log").is_file():
+            pytest.skip(f"{name}.log does not exist yet in {project_path}/user/log")
+
     def test_asset_processor_running(self, mcp_server: MCPServer, project_path: str) -> None:
         result = _run(_call(mcp_server, "get_asset_processor_status", project_path=project_path))
         parsed = json.loads(result)
@@ -213,30 +219,32 @@ class TestAssetTools:
             pytest.skip("Asset Processor is not running")
 
     def test_tail_log_editor(self, mcp_server: MCPServer, project_path: str) -> None:
+        self._require_log(project_path, "Editor")
         result = _run(
             _call(mcp_server, "tail_log", log_name="Editor", lines=10, project_path=project_path)
         )
         parsed = json.loads(result)
-        if parsed.get("status") != "error":
-            assert "lines" in parsed
-            assert isinstance(parsed["lines"], list)
-            assert len(parsed["lines"]) <= 10
+        assert parsed.get("status") != "error", parsed
+        assert isinstance(parsed["lines"], list)
+        assert len(parsed["lines"]) <= 10
 
     def test_tail_log_asset_processor(self, mcp_server: MCPServer, project_path: str) -> None:
+        self._require_log(project_path, "AP_GUI")
         result = _run(
             _call(
                 mcp_server,
                 "tail_log",
-                log_name="AssetProcessor",
+                log_name="AP_GUI",
                 lines=5,
                 project_path=project_path,
             )
         )
         parsed = json.loads(result)
-        if parsed.get("status") != "error":
-            assert "lines" in parsed
+        assert parsed.get("status") != "error", parsed
+        assert "lines" in parsed
 
     def test_tail_log_with_filter(self, mcp_server: MCPServer, project_path: str) -> None:
+        self._require_log(project_path, "Editor")
         result = _run(
             _call(
                 mcp_server,
@@ -248,11 +256,12 @@ class TestAssetTools:
             )
         )
         parsed = json.loads(result)
-        if parsed.get("status") != "error":
-            for line in parsed["lines"]:
-                assert re.search(r"INFO|WARNING|ERROR", line, re.IGNORECASE) or line == ""
+        assert parsed.get("status") != "error", parsed
+        for line in parsed["lines"]:
+            assert re.search(r"INFO|WARNING|ERROR", line, re.IGNORECASE) or line == ""
 
     def test_get_log_errors(self, mcp_server: MCPServer, project_path: str) -> None:
+        self._require_log(project_path, "Editor")
         result = _run(
             _call(
                 mcp_server,
@@ -263,10 +272,9 @@ class TestAssetTools:
             )
         )
         parsed = json.loads(result)
-        if parsed.get("status") != "error":
-            assert "errors" in parsed
-            assert "count" in parsed
-            assert isinstance(parsed["errors"], list)
+        assert parsed.get("status") != "error", parsed
+        assert "count" in parsed
+        assert isinstance(parsed["errors"], list)
 
     def test_tail_log_rejects_path_traversal(
         self, mcp_server: MCPServer, project_path: str

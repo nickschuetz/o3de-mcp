@@ -58,9 +58,18 @@ class TestResolveProjectPath:
 
 
 class TestGetLogDir:
-    def test_log_dir_path(self, tmp_path: Path) -> None:
-        log_dir = _get_log_dir(tmp_path)
-        assert log_dir == tmp_path / "log"
+    def test_defaults_to_user_log(self, tmp_path: Path) -> None:
+        # Where the editor and Asset Processor actually write.
+        assert _get_log_dir(tmp_path) == tmp_path / "user" / "log"
+
+    def test_prefers_user_log(self, tmp_path: Path) -> None:
+        (tmp_path / "user" / "log").mkdir(parents=True)
+        (tmp_path / "log").mkdir()
+        assert _get_log_dir(tmp_path) == tmp_path / "user" / "log"
+
+    def test_falls_back_to_a_bare_log_dir(self, tmp_path: Path) -> None:
+        (tmp_path / "log").mkdir()
+        assert _get_log_dir(tmp_path) == tmp_path / "log"
 
 
 # --- Log tail reading tests ---

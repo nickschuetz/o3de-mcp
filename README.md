@@ -43,7 +43,7 @@ See the [architecture documentation](https://github.com/nickschuetz/o3de-mcp/blo
 - Export projects for distribution
 
 **Asset Pipeline** (5 tools, no editor required):
-- Asset Processor status, asset refresh, and wait-for-completion
+- Asset Processor status, asset refresh (AssetProcessorBatch), and waiting for an Asset Processor run to exit
 - Tail editor and Asset Processor logs, filter for errors
 
 **Track View** (8 tools, requires a running editor):
