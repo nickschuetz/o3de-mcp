@@ -789,3 +789,35 @@ class TestAssignAsset:
             },
         )
         assert isinstance(out, str) and out.startswith("Assigned asset"), out
+
+
+class _Vec:
+    def __init__(self, x: float, y: float, z: float) -> None:
+        self.x, self.y, self.z = x, y, z
+
+
+class TestGetTransformScale:
+    def _scale(self, surface: dict, tmp_path: Path, uniform: float, component: object) -> dict:
+        out = _run_tool(
+            "get_transform",
+            surface,
+            tmp_path,
+            {
+                ("TransformBus", "GetWorldTM"): lambda *a: _UniformTM(uniform),
+                ("NonUniformScaleRequestBus", "GetScale"): lambda *a: component,
+            },
+        )
+        return json.loads(out)
+
+    def test_no_component_reads_as_zero_and_means_uniform(
+        self, surface: dict, tmp_path: Path
+    ) -> None:
+        # Live 26.10.0 answers (0, 0, 0) from GetScale without the component.
+        got = self._scale(surface, tmp_path, 2.0, _Vec(0, 0, 0))
+        assert got["non_uniform_scale"] is None
+        assert got["uniform_scale"] == 2.0 and got["scale"] == [2.0, 2.0, 2.0]
+
+    def test_a_component_multiplies_the_uniform_scale(self, surface: dict, tmp_path: Path) -> None:
+        got = self._scale(surface, tmp_path, 2.0, _Vec(50, 50, 1))
+        assert got["non_uniform_scale"] == [50.0, 50.0, 1.0]
+        assert got["scale"] == [100.0, 100.0, 2.0]

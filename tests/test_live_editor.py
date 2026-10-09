@@ -307,36 +307,74 @@ class TestLiveTransform:
 
 
 class TestLiveTransformScale:
-    """An O3DE Transform holds one uniform scale."""
+    """Scale through set_transform. Gem API 0.5.0+ applies a non-uniform scale with
+    the engine's Non-uniform Scale component and takes quaternions natively; older
+    gems refuse a non-uniform scale (an O3DE Transform holds one uniform scale)."""
 
-    def test_non_uniform_scale_is_refused_and_changes_nothing(self, mcp_server: MCPServer) -> None:
-        created = json.loads(_run(_call(mcp_server, "create_entity", name="ScaleRefused")))
-        eid = str(created["entity_id"])
+    @staticmethod
+    def _tool(mcp_server: MCPServer, tool_name: str, **kwargs) -> dict:  # noqa: ANN003
+        return json.loads(_run(_call(mcp_server, tool_name, **kwargs)))
+
+    @staticmethod
+    def _close(got: list, want: list) -> bool:
+        return all(math.isclose(g, w, abs_tol=1e-3) for g, w in zip(got, want))
+
+    def _api(self, mcp_server: MCPServer) -> tuple[int, ...]:
+        caps = self._tool(mcp_server, "get_capabilities")
+        text = str((caps["editor"].get("agent_server") or {}).get("api_version") or "0")
+        return tuple(int(x) for x in text.split(".") if x.isdigit())
+
+    def _entity(self, mcp_server: MCPServer, name: str) -> str:
+        return str(self._tool(mcp_server, "create_entity", name=name)["entity_id"])
+
+    def test_non_uniform_scale(self, mcp_server: MCPServer) -> None:
+        eid = self._entity(mcp_server, "ScaleTest")
         try:
-            parsed = json.loads(
-                _run(_call(mcp_server, "set_transform", entity_id=eid, scale=[50, 50, 1]))
-            )
-            assert parsed["status"] == "error", parsed
-            assert parsed["code"] == "non_uniform_scale_unsupported", parsed
-            got = json.loads(_run(_call(mcp_server, "get_transform", entity_id=eid)))
-            assert all(math.isclose(s, 1.0, abs_tol=1e-3) for s in got["scale"]), got
+            out = self._tool(mcp_server, "set_transform", entity_id=eid, scale=[50, 50, 1])
+            if self._api(mcp_server) < (0, 5, 0):
+                assert out["code"] == "non_uniform_scale_unsupported", out
+                got = self._tool(mcp_server, "get_transform", entity_id=eid)
+                assert self._close(got["scale"], [1, 1, 1]), got
+                return
+            assert out.get("status") != "error", out
+            assert self._close(out["effective_scale"], [50, 50, 1]), out
+            got = self._tool(mcp_server, "get_transform", entity_id=eid)
+            assert self._close(got["scale"], [50, 50, 1]), got
+            assert self._close([got["uniform_scale"]], [1.0]), got
+            assert self._close(got["non_uniform_scale"], [50, 50, 1]), got
+            entity = self._tool(mcp_server, "get_entity", entity_id=eid)
+            assert any("NonUniformScale" in c for c in entity["components"]), entity
+
+            # A uniform scale afterwards resets the component, so it is the scale.
+            out = self._tool(mcp_server, "set_transform", entity_id=eid, scale=[2, 2, 2])
+            assert self._close(out["effective_scale"], [2, 2, 2]), out
+            got = self._tool(mcp_server, "get_transform", entity_id=eid)
+            assert self._close(got["scale"], [2, 2, 2]), got
+            assert self._close(got["non_uniform_scale"], [1, 1, 1]), got
+
+            # The component clamps below 0.01, so the gem refuses rather than fail later.
+            tiny = self._tool(mcp_server, "set_transform", entity_id=eid, scale=[0.001, 1, 1])
+            assert tiny["status"] == "error" and tiny["code"] == "validation_failed", tiny
         finally:
             _run(_call(mcp_server, "delete_entity", entity_id=eid))
 
-    def test_python_path_keeps_the_scale_when_none_is_given(self, mcp_server: MCPServer) -> None:
-        created = json.loads(_run(_call(mcp_server, "create_entity", name="KeepScale")))
-        eid = str(created["entity_id"])
+    def test_a_gimbal_pole_rotation_keeps_the_scale(self, mcp_server: MCPServer) -> None:
+        eid = self._entity(mcp_server, "KeepScale")
         try:
             _run(_call(mcp_server, "set_transform", entity_id=eid, scale=[3, 3, 3]))
-            # Pitch +90 is a gimbal pole, so this rotation takes the editor-Python
-            # path, which used to reset the scale to 1.
+            # Pitch +90: older gems take the editor-Python path (which used to reset
+            # the scale to 1); API 0.5.0+ takes the quaternion natively.
             half = math.sqrt(0.5)
             out = _run(
                 _call(mcp_server, "set_transform", entity_id=eid, rotation=[0, half, 0, half])
             )
-            assert out.startswith("Transform set for entity"), out
-            got = json.loads(_run(_call(mcp_server, "get_transform", entity_id=eid)))
-            assert all(math.isclose(s, 3.0, abs_tol=1e-3) for s in got["scale"]), got
+            assert '"status": "error"' not in out, out
+            got = self._tool(mcp_server, "get_transform", entity_id=eid)
+            assert self._close(got["scale"], [3, 3, 3]), got
+            rot = got["rotation"]
+            if rot[3] < 0:
+                rot = [-v for v in rot]
+            assert self._close(rot, [0, half, 0, half]), got
         finally:
             _run(_call(mcp_server, "delete_entity", entity_id=eid))
 

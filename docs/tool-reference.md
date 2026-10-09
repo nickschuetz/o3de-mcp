@@ -232,7 +232,7 @@ Set the world transform of an entity. Only provided components are changed.
 | `entity_id` | int or str | yes | Entity ID |
 | `position` | list[float] | no | [x, y, z] world position |
 | `rotation` | list[float] | no | [x, y, z, w] quaternion rotation (4 elements) |
-| `scale` | list[float] | no | [x, y, z] scale; the three values must match (a Transform's scale is uniform) |
+| `scale` | list[float] | no | [x, y, z] effective scale, each in (0, 1000]; non-uniform needs gem API 0.5.0+ (each element at least 0.01) |
 
 Tries the gem's native `set_transform` request first (gem 0.5.0 or later,
 works in secure mode). The quaternion is converted to the XYZ Euler degrees the
@@ -247,10 +247,16 @@ directly, keeps the current scale when none is given, and prints
 `Transform set for entity [<id>]`. An all-zero quaternion is rejected before
 either path.
 
-An O3DE Transform holds only a uniform scale, and the Non-uniform Scale
-component cannot be added from editor Python, so a `scale` whose three values
-differ is refused with `non_uniform_scale_unsupported` (it used to be applied
-silently as its largest value).
+On AiCompanion gem API 0.5.0 and later (gem 0.6.0), the rotation goes to the gem as
+a quaternion as is (no Euler conversion and no editor-Python detour at a gimbal
+pole), and a non-uniform `scale` is applied natively: an O3DE Transform holds only a
+uniform scale, so the gem adds the engine's Non-uniform Scale component (as the
+Transform's "Add non-uniform scale" button does), sets the Transform's scale to 1 and
+the component to the vector, in one undo step. A later uniform scale sets the
+component back to `[1, 1, 1]`. The reply carries `scale` (the uniform scale),
+`non_uniform_scale` and `effective_scale`. On older gems a non-uniform `scale` is
+refused with `non_uniform_scale_unsupported` (it used to be applied silently as its
+largest value), because the component cannot be added from editor Python.
 
 ### get_transform
 
@@ -260,7 +266,10 @@ Get the world transform of an entity.
 |-------|------|----------|-------------|
 | `entity_id` | int or str | yes | Entity ID |
 
-Returns JSON: `{"position": [x,y,z], "rotation": [x,y,z,w], "scale": [x,y,z]}`
+Returns JSON: `{"position": [x,y,z], "rotation": [x,y,z,w], "scale": [x,y,z],
+"uniform_scale": s, "non_uniform_scale": [x,y,z] or null}`. `scale` is the effective
+scale: the Transform's uniform scale times the entity's Non-uniform Scale component,
+when it has one.
 
 ### set_parent
 

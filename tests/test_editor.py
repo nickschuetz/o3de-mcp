@@ -1470,18 +1470,31 @@ class TestNativeMutationTools:
     type is unavailable."""
 
     @staticmethod
-    async def _call(tool_name: str, arguments: dict, response: dict) -> tuple[str, list, int]:
+    async def _call(
+        tool_name: str, arguments: dict, response: dict, api_version: str = "0.4.0"
+    ) -> tuple[str, list, int]:
+        """Call a tool against a fake gem reporting ``api_version``.
+
+        The gem's get_api_version answer is left out of the returned calls.
+        """
         from mcp.server import MCPServer
 
         from o3de_mcp.tools.editor import register_editor_tools
 
+        version_reply = {"status": "ok", "output": json.dumps({"api_version": api_version})}
+
+        async def _request(request_type: str, *args: object, **kwargs: object) -> dict:
+            return version_reply if request_type == "get_api_version" else response
+
         mcp = MCPServer("test")
         register_editor_tools(mcp)
         with patch("o3de_mcp.tools.editor._pool") as mock_pool:
-            mock_pool.send_request = AsyncMock(return_value=response)
+            mock_pool.send_request = AsyncMock(side_effect=_request)
             mock_pool.send_script = AsyncMock(return_value="script ran")
             content = (await mcp.call_tool(tool_name, arguments)).content
-            calls = mock_pool.send_request.call_args_list
+            calls = [
+                c for c in mock_pool.send_request.call_args_list if c.args[0] != "get_api_version"
+            ]
             scripts = mock_pool.send_script.await_count
         return content[0].text, calls, scripts
 
@@ -1551,6 +1564,49 @@ class TestNativeMutationTools:
             )
         )
         assert calls[0].kwargs["params"] == {"entity_id": "123", "position": [1.0, 2.0, 3.0]}
+
+    def test_api_0_5_sends_the_quaternion_and_array_scale_natively(self) -> None:
+        # Pitch +90 is a gimbal pole: older gems need editor Python for it, but API
+        # 0.5.0 takes the quaternion as is, and a non-uniform scale natively.
+        half = math.sqrt(0.5)
+        text, calls, scripts = asyncio.run(
+            self._call(
+                "set_transform",
+                {"entity_id": "123", "rotation": [0, half, 0, half], "scale": [50, 50, 1]},
+                {"status": "ok", "output": "{}"},
+                api_version="0.5.0",
+            )
+        )
+        assert scripts == 0
+        params = calls[0].kwargs["params"]
+        assert calls[0].args[0] == "set_transform"
+        assert params["rotation_quaternion"] == pytest.approx([0, half, 0, half])
+        assert "rotation" not in params
+        assert params["scale"] == [50.0, 50.0, 1.0]
+
+    def test_api_0_5_sends_a_uniform_scale_as_a_number(self) -> None:
+        _, calls, _ = asyncio.run(
+            self._call(
+                "set_transform",
+                {"entity_id": "123", "rotation": [0, 0, 0, 1], "scale": [2, 2, 2]},
+                {"status": "ok", "output": "{}"},
+                api_version="0.5.0",
+            )
+        )
+        assert calls[0].kwargs["params"]["scale"] == 2.0
+
+    def test_api_0_5_reports_a_native_refusal(self) -> None:
+        refused = {"status": "error", "code": "validation_failed", "error": "scale out of range"}
+        text, _, scripts = asyncio.run(
+            self._call(
+                "set_transform",
+                {"entity_id": "123", "scale": [5000, 1, 1]},
+                refused,
+                api_version="0.5.0",
+            )
+        )
+        assert scripts == 0
+        assert json.loads(text)["code"] == "validation_failed"
 
     def test_set_transform_refuses_a_non_uniform_scale(self) -> None:
         # A Transform holds one uniform scale; [1, 2, 3] used to be applied as a
@@ -2119,3 +2175,33 @@ class TestGetSessionVars:
     def test_rejects_empty_session_id(self) -> None:
         with pytest.raises(Exception):
             asyncio.run(_call_tool("get_session_vars", {"session_id": ""}))
+
+
+class TestGemApiVersionCache:
+    def test_asked_once_then_cached_until_the_connection_closes(self) -> None:
+        from o3de_mcp.tools import editor
+
+        pool = editor._EditorConnectionPool()
+        reply = {"status": "ok", "output": json.dumps({"api_version": "0.5.0"})}
+        pool.send_request = AsyncMock(return_value=reply)  # type: ignore[method-assign]
+
+        async def run() -> list:
+            with patch("o3de_mcp.tools.editor._pool", pool):
+                first = await editor._gem_api_version()
+                second = await editor._gem_api_version()
+                await pool._close()
+                third = await editor._gem_api_version()
+            return [first, second, third]
+
+        assert asyncio.run(run()) == [(0, 5, 0)] * 3
+        assert pool.send_request.await_count == 2  # once, then again after the close
+
+    def test_no_gem_means_no_version(self) -> None:
+        from o3de_mcp.tools import editor
+
+        pool = editor._EditorConnectionPool()
+        pool.send_request = AsyncMock(  # type: ignore[method-assign]
+            return_value={"status": "error", "code": "agent_server_required", "error": "legacy"}
+        )
+        with patch("o3de_mcp.tools.editor._pool", pool):
+            assert asyncio.run(editor._gem_api_version()) is None

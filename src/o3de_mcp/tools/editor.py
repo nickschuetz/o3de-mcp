@@ -669,6 +669,9 @@ class _EditorConnectionPool:
         self._lock_loop: asyncio.AbstractEventLoop | None = None
         self._last_failure_time: float | None = None
         self._protocol: int = _PROTO_UNKNOWN
+        # The gem's API version on this connection, cached until it closes.
+        self._api_version: tuple[int, ...] | None = None
+        self._api_version_known: bool = False
 
     async def send_script(
         self,
@@ -959,6 +962,9 @@ class _EditorConnectionPool:
         return _PROTO_LEGACY
 
     async def _close(self) -> None:
+        # A reconnect may reach a different gem, so forget its API version.
+        self._api_version = None
+        self._api_version_known = False
         if self._writer is not None:
             current_loop = None
             try:
@@ -988,6 +994,37 @@ class _EditorConnectionPool:
 
 # Module-level pool instance shared by all tools
 _pool = _EditorConnectionPool()
+
+
+async def _gem_api_version() -> tuple[int, ...] | None:
+    """The AiCompanion gem's API version on the current connection, or None.
+
+    None means no gem answered (the legacy RemoteConsole transport, an editor
+    that is down, or a reply without a version). Cached until the connection
+    closes, so a reconnect to a different gem is noticed.
+    """
+    if getattr(_pool, "_api_version_known", False) is True:
+        cached = _pool._api_version
+        return cached if isinstance(cached, tuple) else None
+    version: tuple[int, ...] | None = None
+    try:
+        response = await _pool.send_request("get_api_version")
+        if isinstance(response, dict) and response.get("status") == "ok":
+            parsed = json.loads(str(response.get("output", "")))
+            text = str(parsed.get("api_version", "")) if isinstance(parsed, dict) else ""
+            parts = text.split(".")
+            if parts and all(part.isdigit() for part in parts):
+                version = tuple(int(part) for part in parts)
+    except (json.JSONDecodeError, TypeError, OSError, ConnectionError, TimeoutError):
+        version = None
+    if isinstance(_pool, _EditorConnectionPool):
+        _pool._api_version = version
+        _pool._api_version_known = version is not None
+    return version
+
+
+# Gem API that takes set_transform "scale" as [x, y, z] and "rotation_quaternion".
+_API_NATIVE_SCALE_AND_QUATERNION = (0, 5, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1745,9 +1782,28 @@ def register_editor_tools(mcp: MCPServer) -> None:
             if math.sqrt(sum(v * v for v in rot)) < 1e-12:
                 raise ValueError("rotation quaternion must not be all zeros.")
 
-        # A Transform holds one uniform scale; a non-uniform one would silently
-        # collapse to its largest value, so refuse it.
-        if scl is not None and not scl[0] == scl[1] == scl[2]:
+        uniform = scl is None or scl[0] == scl[1] == scl[2]
+        # Gem API 0.5.0+ takes the quaternion as is and a non-uniform scale (through
+        # the engine's Non-uniform Scale component), so send both natively. Older
+        # gems only matter when a rotation or a non-uniform scale is given; ask
+        # for the version only then.
+        if rot is not None or not uniform:
+            api = await _gem_api_version()
+            if api is not None and api >= _API_NATIVE_SCALE_AND_QUATERNION:
+                params_v5: dict[str, object] = {"entity_id": entity_id.strip("[]")}
+                if pos is not None:
+                    params_v5["position"] = pos
+                if rot is not None:
+                    params_v5["rotation_quaternion"] = rot
+                if scl is not None:
+                    params_v5["scale"] = scl[0] if uniform else scl
+                native_v5 = await _native_mutation("set_transform", params_v5)
+                if native_v5 is not None:
+                    return native_v5
+
+        # Older gems: a Transform holds one uniform scale, and a non-uniform one
+        # would silently collapse to its largest value, so refuse it.
+        if not uniform:
             return _format_error(
                 "non_uniform_scale_unsupported",
                 f"Scale {scl} is not uniform. An O3DE Transform holds only a uniform "
@@ -1832,7 +1888,14 @@ def register_editor_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def get_transform(entity_id: EntityIdArg) -> str:
-        """Get the world transform of an entity."""
+        """Get the world transform of an entity.
+
+        Returns ``position``, ``rotation`` (an ``[x, y, z, w]`` quaternion) and
+        ``scale``, the effective ``[x, y, z]`` scale: the Transform's uniform
+        scale times the entity's Non-uniform Scale component, if it has one.
+        ``uniform_scale`` and ``non_uniform_scale`` (``null`` without the
+        component) give the two parts.
+        """
         entity_id = _validate_entity_id(entity_id)
         params = json.dumps({"entity_id": entity_id})
         script = textwrap.dedent(f"""\
@@ -1852,21 +1915,21 @@ def register_editor_tools(mcp: MCPServer) -> None:
             else:
                 pos = tm.translation
                 rot = tm.rotation
-                try:
-                    m3 = math.Matrix3x3_CreateFromTransform(tm)
-                    b0 = m3.BasisX
-                    b1 = m3.BasisY
-                    b2 = m3.BasisZ
-                    import math as _math
-                    scl = [_math.sqrt(b0.x**2 + b0.y**2 + b0.z**2),
-                           _math.sqrt(b1.x**2 + b1.y**2 + b1.z**2),
-                           _math.sqrt(b2.x**2 + b2.y**2 + b2.z**2)]
-                except Exception:
-                    scl = [1.0, 1.0, 1.0]
+                _uniform = float(tm.GetUniformScale())
+                # GetScale answers (0, 0, 0), not None, when the entity has no
+                # Non-uniform Scale component, so a zero vector means "none".
+                _nus = entity.NonUniformScaleRequestBus(bus.Event, 'GetScale', eid)
+                _component = None
+                if _nus is not None:
+                    _vec = [float(_nus.x), float(_nus.y), float(_nus.z)]
+                    if any(abs(v) > 1e-9 for v in _vec):
+                        _component = _vec
                 result = {{
                     'position': [pos.x, pos.y, pos.z],
                     'rotation': [rot.x, rot.y, rot.z, rot.w],
-                    'scale': scl,
+                    'scale': [_uniform * c for c in (_component or [1.0, 1.0, 1.0])],
+                    'uniform_scale': _uniform,
+                    'non_uniform_scale': _component,
                 }}
                 print(json.dumps(result))
         """)
