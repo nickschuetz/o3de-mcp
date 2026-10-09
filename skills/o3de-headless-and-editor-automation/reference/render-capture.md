@@ -95,8 +95,11 @@ The write is asynchronous: the file appears a frame or two later, so poll for it
 before reading. This captures the editor's active viewport; frame the shot first
 (o3de-mcp `focus_entity` / `set_viewport_camera`), and set `ed_keepEditorActive 1`
 so frames advance while the window is unfocused. o3de-mcp's `capture_viewport`
-tool is the Qt-widget-grab alternative (`QWidget.grab()` on the viewport), which
-also needs no external tool.
+tool wraps this same `CaptureScreenshot` call and does the polling for you: it
+issues the capture, then waits on the client side for a new, fully written file
+(up to `O3DE_CAPTURE_WAIT` seconds, default 15). Its PySide6 widget-grab branch
+cannot succeed in the editor's embedded interpreter (`QApplication.instance()` is
+`None` there), so the Atom capture is what actually runs.
 
 ## Known traps
 

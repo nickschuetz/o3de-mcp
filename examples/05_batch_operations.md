@@ -44,7 +44,7 @@ Set a property across all matching entities:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.components as comp\nimport azlmbr.math as math\n\nsearch = entity.SearchFilter()\nsearch.names = ['Rock_*']\nids = entity.SearchBus(bus.Broadcast, 'SearchEntities', search)\n\nfor eid in ids:\n    comp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(2.0, 2.0, 2.0))\n\nprint(f'Scaled {len(ids)} Rock entities to 2x')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.components as comp\n\nsearch = entity.SearchFilter()\nsearch.names = ['Rock_*']\nids = entity.SearchBus(bus.Broadcast, 'SearchEntities', search)\n\nfor eid in ids:\n    comp.TransformBus(bus.Event, 'SetLocalUniformScale', eid, 2.0)\n\nprint(f'Scaled {len(ids)} Rock entities to 2x')"
   }
 }
 ```
@@ -65,7 +65,7 @@ The most efficient pattern — create entities and add components in one call:
 **Cost: 1 tool call creates 5 fully-configured physics objects.**
 
 With individual tool calls this would be:
-- 5 `create_entity` + 15 `add_component` + 5 `run_editor_python` (transforms) = **25 calls**
+- 5 `create_entity` + 15 `add_component` + 5 `set_transform` = **25 calls**
 
 ## Efficiency Comparison
 

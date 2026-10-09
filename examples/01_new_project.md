@@ -42,11 +42,12 @@ Use the desired template name in step 2.
 {"tool": "get_engine_info"}
 ```
 
-**Expected response (paths vary by OS and install location):**
+**Expected response** (the engine's `engine.json` with `engine_path` added,
+abridged here; values vary by engine version, OS and install location):
 ```json
 {
   "engine_name": "o3de",
-  "version": "2305.0",
+  "version": "24.09",
   "engine_path": "/opt/O3DE/24.09"
 }
 ```

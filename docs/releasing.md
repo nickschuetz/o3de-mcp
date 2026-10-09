@@ -18,7 +18,8 @@ pytest
 
 `tests/test_editor_scripts.py` runs the Python each editor tool sends to the editor
 against a stub built from the editor's own reflection dump. It fails on any bus event,
-function or class the editor does not reflect, and on the wrong call type. This is part
+function or class the editor does not reflect, on the wrong call type, and on a reflected
+function called with the wrong number of arguments. This is part
 of `pytest`, so it runs in CI, but the surface file has to match the engine you support:
 
 ```bash
@@ -55,8 +56,32 @@ partway through means the editor crashed; the core dump and `Editor.log` under
 
 When a tool gains a new editor-side code path, add a live test for it in the same
 change. The mocked test proves the tool dispatches; only the live test proves it works.
+A live test must fail when the tool fails: a test that only checks the result "if it
+succeeded" passed for months while `tail_log` read the wrong directory on every project.
 
-## 4. Tag
+Run the suite against the AiCompanion gem version this release pairs with (the native and
+animation tools depend on it), and note that version in the release notes.
+
+## 4. Documentation audit (manual, required)
+
+Docs drift tool by tool between releases, and a release ships them to PyPI and to every
+user. Before tagging, reconcile every document with the code, not with the previous docs:
+
+- `README.md` (also the PyPI page), `CLAUDE.md` and `AGENTS.md`: tool counts per
+  category, category lists, conventions, the error-handling and entity-id guidance.
+- `docs/tool-reference.md`: every registered tool has a section and every parameter,
+  type and required/optional marker matches the code. This part is mechanical; compare
+  against `mcp._tool_manager.list_tools()`.
+- `docs/architecture.md`: the Mermaid diagram (every module, every edge, every native
+  request type it names) and the module table.
+- `docs/recipes.md`, `docs/components.md`, every walkthrough in `examples/` and the
+  skill under `skills/`: any tool call, bus call or sample output they show must match
+  what the code does today. Check bus calls against `tests/data/azlmbr_surface.json`.
+
+Fix what the audit finds before tagging. Where a document describes the intended
+behavior and the code is wrong, fix the code.
+
+## 5. Tag
 
 Update `CHANGELOG.md` (move Unreleased into a version section), bump the version in
 `pyproject.toml`, and create the GitHub release. The publish workflow does the rest.

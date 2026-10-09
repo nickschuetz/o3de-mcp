@@ -30,7 +30,7 @@ Position and configure the player:
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<player_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 1.0))\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(0.5, 0.5, 0.5))\nprint('Player positioned')"
+    "script": "import azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<player_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(0.0, 0.0, 1.0))\ncomp.TransformBus(bus.Event, 'SetLocalUniformScale', eid, 0.5)\nprint('Player positioned')"
   }
 }
 ```
@@ -43,13 +43,16 @@ Position and configure the player:
 {"tool": "add_component", "arguments": {"entity_id": "<goal_id>", "component_type": "Lua Script"}}
 ```
 
-Position and make it a trigger:
+Position it, give it a flat 3 x 3 x 1 footprint, and make it a trigger. A
+Transform holds only a uniform scale, so the footprint goes through
+`AddNonUniformScaleComponent`, which adds a Non-uniform Scale component and sets
+it:
 
 ```json
 {
   "tool": "run_editor_python",
   "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<goal_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(20.0, 0.0, 0.5))\ncomp.TransformBus(bus.Event, 'SetLocalScale', eid, math.Vector3(3.0, 3.0, 1.0))\ncol_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)[0]\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, col_t)\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'IsTrigger', True)\nprint('Goal zone configured')"
+    "script": "import azlmbr.editor as editor\nimport azlmbr.components as comp\nimport azlmbr.bus as bus\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<goal_id>')\ncomp.TransformBus(bus.Event, 'SetWorldTranslation', eid, math.Vector3(20.0, 0.0, 0.5))\neditor.AddNonUniformScaleComponent(eid, math.Vector3(3.0, 3.0, 1.0))\ncol_t = editor.EditorComponentAPIBus(bus.Broadcast, 'FindComponentTypeIdsByEntityType', ['PhysX Primitive Collider'], entity.EntityType().Game)[0]\noutcome = editor.EditorComponentAPIBus(bus.Broadcast, 'GetComponentOfType', eid, col_t)\nif outcome.IsSuccess():\n    pair = outcome.GetValue()\n    editor.EditorComponentAPIBus(bus.Broadcast, 'SetComponentProperty', pair, 'IsTrigger', True)\nprint('Goal zone configured')"
   }
 }
 ```
@@ -157,8 +160,8 @@ FallingCrate_* (Mesh + PhysX)
 
 ## Token Efficiency Notes
 
-This example used **14 tool calls** to create a game with 12+ entities. Key
-savings:
+This example used **20 tool calls** (2 of them for verification) to create a
+game with 13 entities. Key savings:
 
 1. **Batch entity creation** via `run_editor_python` loops — one call creates 4
    entities instead of 4 separate `create_entity` calls.

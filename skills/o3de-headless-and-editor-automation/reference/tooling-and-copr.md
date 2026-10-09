@@ -3,8 +3,9 @@
 ## Automation helpers
 
 - **o3de-mcp** — MCP server exposing O3DE editor automation to an agent loop
-  (66 tools: entities, components, prefabs, levels, viewport, console, sessions,
-  native scene snapshot, project/build, AP and logs).
+  (92 tools: entities, components, prefabs, levels, viewport, console, sessions,
+  native scene snapshot, Track View sequences, EMotion FX anim graphs, bus schema
+  introspection, project/build, AP and logs).
   https://github.com/nickschuetz/o3de-mcp
   Requires the `mcp` **2.x** Python SDK (`mcp[cli]>=2,<3`). With a 1.x `mcp` in
   the same interpreter the server dies at import (`cannot import name

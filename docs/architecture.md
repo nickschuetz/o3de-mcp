@@ -35,6 +35,8 @@ graph LR
         ANIM["animation.py<br/>EMotion FX<br/>anim graphs"]
         UC["utils/capabilities.py<br/>Probe editor & CLI"]
         UO["utils/o3de.py<br/>Engine discovery,<br/>CLI runner"]
+        UI["utils/introspection.py<br/>Stub parsing"]
+        UE["utils/errors.py<br/>Failure envelope"]
     end
 
     subgraph O3DE["O3DE Editor"]
@@ -66,9 +68,14 @@ graph LR
     AS -- "Python tools:<br/>forwards script" --> EPB
     TV -- "editor Python<br/>(azlmbr.legacy.trackview)" --> AS
     ANIM -- "native requests<br/>anim graph reads + authoring" --> AS
-    AS -. "native tools (no Python, work in secure mode):<br/>get_scene_snapshot, get_entity_tree, get_entity,<br/>validate_scene, get_bus_schema,<br/>create_entity, set_transform, delete_entity" .-> AS
-    INTRO -- "reads .pyi stubs" --> STUBS
+    AS -. "native tools (no Python, work in secure mode):<br/>get_scene_snapshot, get_entity_tree, get_entity,<br/>validate_scene, get_bus_schema,<br/>create_entity, set_transform, delete_entity,<br/>anim graph reads and authoring" .-> AS
+    INTRO -- "native get_bus_schema,<br/>editor Python" --> AS
+    INTRO --> UI
+    UI -- "reads .pyi stubs" --> STUBS
     PR --> UO
+    ED --> UO
+    ASSET --> UO
+    ED & PR & ASSET & INTRO & ANIM -. "failure envelope" .-> UE
     ASSET -- "reads logs" --> LOGS
     ASSET -- subprocess --> APB
     UO -- subprocess --> SCRIPT
@@ -98,14 +105,14 @@ The [**o3de-ai-companion-gem**](https://github.com/nickschuetz/o3de-ai-companion
 
 Scripts are base64-encoded for safe transport and executed in the editor's embedded Python interpreter.
 
-Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and `get_bus_schema` natively in C++ (the last two from gem 0.4.0), plus `create_entity`, `set_transform` and `delete_entity` from gem 0.5.0. Gem main (shipping as 0.6.0) adds the anim graph request types (`list_anim_graphs`, `get_anim_graph`, and the authoring types from `create_anim_graph` to `set_anim_graph_node`), which the animation tools call directly with no Python fallback. `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. The three mutation tools and `get_bus_schema_live` try their native type first and send their editor-Python script only when the gem answers `Unknown request type`; on the legacy RemoteConsole transport native requests return an `agent_server_required` error, which those tools also treat as "fall back", while the snapshot tools report it.
+Besides `execute_python`, the AgentServer answers `ping`, `get_api_version`, `get_scene_snapshot`, `get_entity_tree`, `get_entity`, `validate_scene` and `get_bus_schema` natively in C++ (`get_entity` and `get_bus_schema` from gem 0.4.0), plus `create_entity`, `set_transform` and `delete_entity` from gem 0.5.0. Gem main (shipping as 0.6.0) adds the anim graph request types (`list_anim_graphs`, `get_anim_graph`, and the authoring types from `create_anim_graph` to `set_anim_graph_node`), which the animation tools call directly with no Python fallback. `get_capabilities` uses `get_api_version` to tell a real AgentServer (gem present) from a bare socket, and the snapshot tools call their request types directly, so they work even when the gem's secure mode disables `execute_python`. The three mutation tools try their native type first and send their editor-Python script only when the gem answers `Unknown request type` (or the transport is the legacy RemoteConsole, where native requests return `agent_server_required`); any other refusal is returned as an error, never retried through Python. `set_transform` also goes straight to editor Python for a non-uniform scale or a rotation within 0.02 degrees of a gimbal pole, which the native Euler form cannot carry losslessly. `get_bus_schema_live` falls back to editor Python, then to the stub files, on any native failure, including an unknown bus. From gem 0.6.0 (API 0.4.0) every native refusal carries a `code` (`validation_failed`, `not_found`, `unavailable`, `engine_error`, `secure_mode`, `execution_failed`, `unknown_request_type`, `timeout`, `shutting_down`), which o3de-mcp relays in its failure envelope. The snapshot tools report a native failure rather than falling back.
 
 #### Connection lifecycle & timeouts
 
 A single persistent TCP connection is pooled across tool calls (`_EditorConnectionPool`). Each `send_script` runs in two bounded phases:
 
-1. **Connect** — bounded by `O3DE_EDITOR_CONNECT_TIMEOUT` (default **5s**). On first use the pool opens the socket and detects the protocol by sending a framed `ping`; if that fails it transparently reconnects for the legacy text protocol.
-2. **Command** — bounded by `O3DE_EDITOR_TIMEOUT` (default **600s**). The editor executes the submitted script *synchronously* and does not reply until it finishes, so this timeout is effectively "how long an editor operation may take." Level loads, game-mode entry, and on-demand asset compilation routinely exceed tens of seconds, so the default is deliberately generous; `run_editor_python` also accepts a per-call `timeout` override.
+1. **Connect**: bounded by `O3DE_EDITOR_CONNECT_TIMEOUT` (default **5s**). On first use the pool opens the socket and detects the protocol by sending a framed `ping`. A non-framed reply means a legacy RemoteConsole, and the pool reconnects for the text protocol; a ping timeout or connection error is reported rather than falling back.
+2. **Command**: bounded by `O3DE_EDITOR_TIMEOUT` (default **600s**). The editor executes the submitted script *synchronously* and does not reply until it finishes, so this timeout is effectively "how long an editor operation may take." Level loads, game-mode entry, and on-demand asset compilation routinely exceed tens of seconds, so the default is deliberately generous; `run_editor_python` also accepts a per-call `timeout` override.
 
 Separating the two means an **unreachable** editor still fails in milliseconds (connect timeout + a 5s fast-fail window that short-circuits repeated attempts) even when a long command timeout is configured. A command that times out returns a `timeout` error noting the editor may still be running the script — retrying blindly can duplicate work, so prefer raising the timeout.
 
@@ -137,7 +144,8 @@ Always call `get_capabilities()` first to determine which tool categories are av
 | `tools/trackview.py` | 8 Track View tools: cinematic sequences (create/list/describe/delete, time range, nodes, play/stop) over editor Python `azlmbr.legacy.trackview` |
 | `tools/animation.py` | 17 EMotion FX tools: anim graph reads (`list_anim_graphs`, `get_anim_graph`) and authoring (graphs, nodes, entry state, parameters, transitions with conditions, blend-tree ports) over the gem's native request types (gem main or 0.6.0+, EMotionFX gem); no Python fallback |
 | `tools/assets.py` | 5 asset pipeline tools — Asset Processor status, refresh/wait, log tailing and error filtering |
-| `utils/capabilities.py` | Runtime probing logic (TCP connect check, CLI availability) |
+| `utils/capabilities.py` | Runtime probing: an editor round trip through the pool, the gem's `get_api_version`, and CLI availability |
+| `utils/errors.py` | The one failure envelope, `{"status": "error", "code", "message"}`, shared by every tool module |
 | `utils/introspection.py` | Parses `<project>/user/python_symbols/azlmbr/*.pyi` stubs into a structured EBus schema |
 | `utils/o3de.py` | Engine/manifest discovery, CLI runner, project/gem listing |
 
