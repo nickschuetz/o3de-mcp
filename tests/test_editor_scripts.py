@@ -704,3 +704,88 @@ def test_an_unknown_entity_id_is_entity_not_found(surface: dict, tmp_path: Path)
     parsed = json.loads(out)
     assert parsed["status"] == "error" and parsed["code"] == "entity_not_found"
     assert "123" in parsed["message"]
+
+
+class _Asset(Anything):
+    """An AssetId stub: valid or not, printing as the given text."""
+
+    def __init__(self, valid: bool, text: str = "{ASSET}:0") -> None:
+        super().__init__()
+        object.__setattr__(self, "_valid", valid)
+        object.__setattr__(self, "_text", text)
+
+    def is_valid(self) -> bool:
+        return object.__getattribute__(self, "_valid")
+
+    def __str__(self) -> str:
+        return object.__getattribute__(self, "_text")
+
+
+class _Ok(Anything):
+    def __init__(self, value: object = None) -> None:
+        super().__init__()
+        object.__setattr__(self, "_value", value)
+
+    def IsSuccess(self) -> bool:  # noqa: N802
+        return True
+
+    def GetValue(self) -> object:  # noqa: N802
+        return object.__getattribute__(self, "_value")
+
+
+class TestAssignAsset:
+    """assign_asset reports only an assignment that reads back."""
+
+    def _run(self, surface: dict, tmp_path: Path, overrides: dict) -> dict | str:
+        out = _run_tool("assign_asset", surface, tmp_path, overrides)
+        try:
+            return json.loads(out)
+        except json.JSONDecodeError:
+            return out
+
+    def test_an_unknown_asset_is_asset_not_found(self, surface: dict, tmp_path: Path) -> None:
+        parsed = self._run(
+            surface,
+            tmp_path,
+            {("AssetCatalogRequestBus", "GetAssetIdByPath"): lambda *a: _Asset(False)},
+        )
+        assert parsed["code"] == "asset_not_found"
+
+    def test_a_refused_set_is_reported(self, surface: dict, tmp_path: Path) -> None:
+        parsed = self._run(
+            surface,
+            tmp_path,
+            {
+                ("AssetCatalogRequestBus", "GetAssetIdByPath"): lambda *a: _Asset(True),
+                ("EditorComponentAPIBus", "SetComponentProperty"): Failure(),
+            },
+        )
+        assert parsed["code"] == "set_property_failed"
+
+    def test_a_value_that_does_not_stick_is_reported(self, surface: dict, tmp_path: Path) -> None:
+        parsed = self._run(
+            surface,
+            tmp_path,
+            {
+                ("AssetCatalogRequestBus", "GetAssetIdByPath"): lambda *a: _Asset(True, "{A}:0"),
+                ("EditorComponentAPIBus", "SetComponentProperty"): lambda *a: _Ok(),
+                ("EditorComponentAPIBus", "GetComponentProperty"): lambda *a: _Ok(
+                    _Asset(True, "{B}:0")
+                ),
+            },
+        )
+        assert parsed["code"] == "assign_asset_failed"
+
+    def test_an_assignment_that_reads_back_succeeds(self, surface: dict, tmp_path: Path) -> None:
+        out = self._run(
+            surface,
+            tmp_path,
+            {
+                ("AssetCatalogRequestBus", "GetAssetIdByPath"): lambda *a: _Asset(True, "{A}:0"),
+                ("EditorComponentAPIBus", "SetComponentProperty"): lambda *a: _Ok(),
+                ("EditorComponentAPIBus", "GetComponentProperty"): lambda *a: _Ok(
+                    _Asset(True, "{A}:0")
+                ),
+            },
+        )
+        assert isinstance(out, str) and out.startswith("Assigned asset"), out

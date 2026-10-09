@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its text, and an unknown id is the error `entity_not_found` instead of a
   traceback. Script refusals also keep the gem's own code (for example
   `secure_mode` when editor Python is disabled) instead of a generic `editor_error`.
+- **`assign_asset` reports only an assignment that holds.** It printed "Assigned"
+  without checking anything, then fell back to a misaddressed call that also
+  "succeeded". It also treated an unknown asset path as found (the catalog answers
+  an invalid id, not `None`) and passed the id as text. It now resolves the
+  asset with the reflected three-argument call and checks it is valid, sets the
+  property with the `AssetId` and checks the outcome, and reads the property back.
+  Failures are `asset_not_found`, `component_type_not_found`,
+  `component_not_on_entity`, `set_property_failed` or `assign_asset_failed`.
 - **Editor failures use the error envelope too.** The failure envelope from the error
   contract below was returned by the server and by some editor tools, but other editor
   tools still printed plain-text failures (add/remove component, assign_asset, set_parent,
