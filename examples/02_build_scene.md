@@ -60,18 +60,18 @@ Capture the returned entity ID, then:
 {"tool": "add_component", "arguments": {"entity_id": "<ground_id>", "component_type": "PhysX Primitive Collider"}}
 ```
 
-Scale the ground via script. A Transform holds only a uniform scale, so the flat
-50 x 50 x 1 plane uses `AddNonUniformScaleComponent`, which adds a Non-uniform
-Scale component and sets it:
+Give it a flat mesh and size it. An O3DE Transform holds only a uniform scale
+(`set_transform` refuses a non-uniform one), so start from a flat mesh: the
+engine's 4 x 4 m ground plane, scaled uniformly by 12.5, is a 50 x 50 m ground.
 
 ```json
-{
-  "tool": "run_editor_python",
-  "arguments": {
-    "script": "import azlmbr.editor as editor\nimport azlmbr.entity as entity\nimport azlmbr.math as math\n\neid = entity.EntityId('<ground_id>')\neditor.AddNonUniformScaleComponent(eid, math.Vector3(50.0, 50.0, 1.0))"
-  }
-}
+{"tool": "assign_asset", "arguments": {"entity_id": "<ground_id>", "component_type": "Mesh", "property_path": "Controller|Configuration|Model Asset", "asset_path": "objects/shaderball/ground_plane_4x4m.fbx.azmodel"}}
+{"tool": "set_transform", "arguments": {"entity_id": "<ground_id>", "position": [0, 0, 0], "scale": [12.5, 12.5, 12.5]}}
 ```
+
+The collider's box keeps its own size; the entity's uniform scale multiplies it.
+For a flat collider, set the PhysX Primitive Collider's box dimensions on the
+component itself rather than through the scale.
 
 ### 6. Add a player camera
 

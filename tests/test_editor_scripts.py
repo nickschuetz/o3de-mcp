@@ -636,3 +636,45 @@ def test_add_component_treats_a_null_type_uuid_as_unknown(surface: dict, tmp_pat
     )
     parsed = json.loads(out)
     assert parsed["status"] == "error" and parsed["code"] == "component_type_not_found"
+
+
+class _UniformTM(Anything):
+    """A world transform stub whose uniform scale reads back as given."""
+
+    def __init__(self, uniform: float) -> None:
+        super().__init__()
+        object.__setattr__(self, "_uniform", uniform)
+
+    def GetUniformScale(self) -> float:  # noqa: N802
+        return object.__getattribute__(self, "_uniform")
+
+
+def _set_transform_script(surface: dict, tmp_path: Path, arguments: dict, readback: float) -> str:
+    script = generate_script("set_transform", {"entity_id": "123", **arguments}, tmp_path)
+    assert script is not None
+    _, out = run_against_surface(
+        script,
+        surface,
+        str(tmp_path),
+        {("TransformBus", "GetWorldTM"): lambda *a: _UniformTM(readback)},
+    )
+    return out
+
+
+class TestSetTransformScale:
+    def test_keeps_the_current_scale_when_none_is_given(
+        self, surface: dict, tmp_path: Path
+    ) -> None:
+        # The entity is at scale 3 and stays there; rebuilding the transform from
+        # rotation and translation alone used to reset it to 1.
+        out = _set_transform_script(surface, tmp_path, {"position": [1, 2, 3]}, 3.0)
+        assert out.startswith("Transform set for entity"), out
+
+    def test_a_uniform_scale_is_applied(self, surface: dict, tmp_path: Path) -> None:
+        out = _set_transform_script(surface, tmp_path, {"scale": [2, 2, 2]}, 2.0)
+        assert out.startswith("Transform set for entity"), out
+
+    def test_a_scale_that_does_not_land_is_an_error(self, surface: dict, tmp_path: Path) -> None:
+        out = _set_transform_script(surface, tmp_path, {"scale": [2, 2, 2]}, 3.0)
+        parsed = json.loads(out)
+        assert parsed["status"] == "error" and parsed["code"] == "set_transform_failed"

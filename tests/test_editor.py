@@ -1547,7 +1547,9 @@ class TestNativeMutationTools:
         )
         assert calls[0].kwargs["params"] == {"entity_id": "123", "position": [1.0, 2.0, 3.0]}
 
-    def test_set_transform_with_a_non_uniform_scale_uses_python(self) -> None:
+    def test_set_transform_refuses_a_non_uniform_scale(self) -> None:
+        # A Transform holds one uniform scale; [1, 2, 3] used to be applied as a
+        # uniform 3 and reported as success.
         text, calls, scripts = asyncio.run(
             self._call(
                 "set_transform",
@@ -1555,9 +1557,9 @@ class TestNativeMutationTools:
                 {"status": "ok", "output": "{}"},
             )
         )
-        assert calls == []
-        assert scripts == 1
-        assert text == "script ran"
+        assert calls == [] and scripts == 0
+        parsed = json.loads(text)
+        assert parsed["status"] == "error" and parsed["code"] == "non_uniform_scale_unsupported"
 
     @pytest.mark.parametrize(
         "tool, arguments",

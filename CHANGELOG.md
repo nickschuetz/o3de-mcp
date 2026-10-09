@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`set_transform` refuses a non-uniform scale instead of faking it.** An O3DE
+  Transform holds only a uniform scale, so a scale like `[50, 50, 1]` was applied
+  as a uniform 50 and reported as success. It now returns
+  `non_uniform_scale_unsupported`. Adding the engine's Non-uniform Scale component
+  from editor Python does not work either (live: `AddNonUniformScaleComponent`
+  adds nothing, and the component is not in the add-component list), so real
+  non-uniform scale waits for a native gem path. The editor-Python path also no
+  longer resets an entity's scale to 1 when `scale` is not given, and it reads
+  the scale back, reporting `set_transform_failed` when it did not land.
 - **Editor failures use the error envelope too.** The failure envelope from the error
   contract below was returned by the server and by some editor tools, but other editor
   tools still printed plain-text failures (add/remove component, assign_asset, set_parent,

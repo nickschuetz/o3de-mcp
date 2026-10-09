@@ -232,7 +232,7 @@ Set the world transform of an entity. Only provided components are changed.
 | `entity_id` | int or str | yes | Entity ID |
 | `position` | list[float] | no | [x, y, z] world position |
 | `rotation` | list[float] | no | [x, y, z, w] quaternion rotation (4 elements) |
-| `scale` | list[float] | no | [x, y, z] scale |
+| `scale` | list[float] | no | [x, y, z] scale; the three values must match (a Transform's scale is uniform) |
 
 Tries the gem's native `set_transform` request first (gem 0.5.0 or later,
 works in secure mode). The quaternion is converted to the XYZ Euler degrees the
@@ -240,11 +240,17 @@ gem takes (the inverse of its own `CreateFromEulerDegreesXYZ`) and a uniform
 scale to its single number. On success it returns the updated entity's JSON
 verbatim, the same shape as `get_entity`. The gem refuses an unknown entity, an
 out-of-bounds position or a scale outside (0, 1000], and that is returned as an
-error. Older gems, the legacy transport, a non-uniform scale and a rotation at
-a gimbal pole (pitch within 0.02 degrees of plus or minus 90, where the Euler
-form cannot carry roll and yaw separately) use the editor Python path, which
-applies the quaternion directly and prints `Transform set for entity [<id>]`.
-An all-zero quaternion is rejected before either path.
+error. Older gems, the legacy transport and a rotation at a gimbal pole (pitch
+within 0.02 degrees of plus or minus 90, where the Euler form cannot carry roll
+and yaw separately) use the editor Python path, which applies the quaternion
+directly, keeps the current scale when none is given, and prints
+`Transform set for entity [<id>]`. An all-zero quaternion is rejected before
+either path.
+
+An O3DE Transform holds only a uniform scale, and the Non-uniform Scale
+component cannot be added from editor Python, so a `scale` whose three values
+differ is refused with `non_uniform_scale_unsupported` (it used to be applied
+silently as its largest value).
 
 ### get_transform
 
