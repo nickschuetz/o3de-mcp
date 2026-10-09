@@ -285,11 +285,17 @@ Save the currently open level. No parameters.
 
 ### create_level
 
-Create a new empty level in the current project.
+Create a new level in the current project and open it in the editor. The level is
+written to `<project>/Levels/<name>/`.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | str | yes | Level name (alphanumeric, starts with letter) |
+| `template` | str | no | Level template prefab, relative to an asset scan folder. Defaults to `Prefabs/Default_Level.prefab`, the editor's own New Level default (camera, sun, grid). Pass `""` for a bare level with no entities. |
+
+Reports `Created and opened level: <name>` on success. The engine's result code is
+turned into an error message otherwise: the level already exists, its directory could
+not be created, or its path is too long.
 
 ### list_levels
 

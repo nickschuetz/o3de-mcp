@@ -87,6 +87,12 @@ _DEFAULT_EDITOR_TIMEOUT = 600.0
 # instantly; this only bounds the pathological "host silently blackholes" case.
 _DEFAULT_CONNECT_TIMEOUT = 5.0
 
+# Level template create_level builds from when the caller names none. This is the
+# template the editor's own New Level dialog selects by default (Default_Level.prefab
+# under <engine>/Assets/Editor/Prefabs: camera, sun, grid, atmosphere) and the path
+# form the engine's AutomatedTesting Python helpers pass to create_level_no_prompt.
+_DEFAULT_LEVEL_TEMPLATE = "Prefabs/Default_Level.prefab"
+
 
 def _get_editor_timeout() -> float:
     """Return the per-command editor execution timeout in seconds.
@@ -1754,8 +1760,17 @@ def register_editor_tools(mcp: MCPServer) -> None:
         return await _async_run_editor_script(script)
 
     @mcp.tool()
-    async def create_level(name: str) -> str:
-        """Create a new empty level in the current O3DE project."""
+    async def create_level(name: str, template: str = _DEFAULT_LEVEL_TEMPLATE) -> str:
+        """Create a new level in the current O3DE project and open it in the editor.
+
+        Args:
+            name: Level name (alphanumeric, hyphens or underscores, starting with
+                a letter). The level is written to ``<project>/Levels/<name>/``.
+            template: Level template prefab, as a path relative to an asset scan
+                folder. Defaults to the editor's own New Level default,
+                ``Prefabs/Default_Level.prefab`` (camera, sun, grid). Pass an empty
+                string for a bare level with no entities.
+        """
         name = name.strip()
         if not name:
             raise ValueError("Level name cannot be empty.")
@@ -1765,21 +1780,39 @@ def register_editor_tools(mcp: MCPServer) -> None:
                 "Expected alphanumeric characters, hyphens, or underscores, "
                 "starting with a letter."
             )
-        params = json.dumps({"name": name})
+        template = template.strip()
+        if template:
+            template = _validate_prefab_path(template)
+        params = json.dumps({"name": name, "template": template})
+        # create_level_no_prompt(templateName, levelName, heightmapResolution,
+        # heightmapUnitSize, terrainExportTextureSize, useTerrain) -> int, reflected
+        # in Code/Editor/CryEditPy.cpp. All six arguments are required; the three
+        # ints and the bool are legacy terrain settings the engine ignores, and the
+        # values below are what the engine's own Python tests pass. The result is
+        # an ECreateLevelResult (Code/Editor/CryEdit.h): 0 is success.
         script = textwrap.dedent(f"""\
             import azlmbr.legacy.general as general
             import json
 
             _params = json.loads({params!r})
             _name = _params['name']
+            _template = _params['template']
+            _reasons = {{
+                1: 'a level with that name already exists',
+                2: 'the level directory could not be created',
+                3: 'the level path is too long',
+            }}
             try:
-                _ok = general.create_level_no_prompt(_name, 0)
-                if _ok:
+                _result = general.create_level_no_prompt(
+                    _template, _name, 1024, 1, 4096, False)
+                if _result == 0:
                     print(f'Created and opened level: {{_name}}')
+                elif _result is None:
+                    print(f'ERROR: could not create level {{_name!r}}: the editor '
+                          f'rejected the create_level_no_prompt call; see the editor log')
                 else:
-                    _actual = general.get_current_level_name()
-                    print(f'ERROR: could not create level {{_name!r}}; '
-                          f'still on {{_actual!r}}')
+                    _reason = _reasons.get(_result, f'engine returned code {{_result}}')
+                    print(f'ERROR: could not create level {{_name!r}}: {{_reason}}')
             except Exception as e:
                 print(f'ERROR: failed to create level {{_name!r}}: {{e}}')
         """)

@@ -726,6 +726,110 @@ class TestCreateLevel:
         with pytest.raises(Exception):
             asyncio.run(_call_tool("create_level", {"name": "Levels/MyLevel"}))
 
+    def test_rejects_template_that_is_not_a_prefab(self) -> None:
+        with pytest.raises(Exception):
+            asyncio.run(
+                _call_tool("create_level", {"name": "MyLevel", "template": "Levels/x.json"})
+            )
+
+    def test_rejects_template_path_traversal(self) -> None:
+        with pytest.raises(Exception):
+            asyncio.run(
+                _call_tool("create_level", {"name": "MyLevel", "template": "../Evil.prefab"})
+            )
+
+
+class TestCreateLevelScript:
+    """The script must call create_level_no_prompt the way the engine reflects it.
+
+    Code/Editor/CryEditPy.cpp reflects it as (templateName, levelName, heightmapResolution,
+    heightmapUnitSize, terrainExportTextureSize, useTerrain) -> int, with every argument
+    required and 0 (ECLR_OK) meaning success. The old script passed two arguments, which
+    the bindings refuse with a warning and a None result, and then treated a truthy result
+    as success, which is backwards for a result code.
+    """
+
+    @staticmethod
+    def _script(arguments: dict) -> str:
+        from mcp.server import MCPServer
+
+        from o3de_mcp.tools.editor import register_editor_tools
+
+        captured: list[str] = []
+
+        async def _record(script: str, **kwargs: object) -> str:
+            captured.append(script)
+            return ""
+
+        mcp = MCPServer("test")
+        register_editor_tools(mcp)
+        with patch("o3de_mcp.tools.editor._pool") as mock_pool:
+            mock_pool.send_script = AsyncMock(side_effect=_record)
+            asyncio.run(mcp.call_tool("create_level", arguments))
+        assert len(captured) == 1
+        return captured[0]
+
+    @staticmethod
+    def _run(script: str, result: object) -> tuple[list[tuple], str]:
+        """Execute the script against a fake azlmbr.legacy.general and return (calls, output)."""
+        calls: list[tuple] = []
+
+        def create_level_no_prompt(*args: object) -> object:
+            calls.append(args)
+            return result
+
+        general = types.ModuleType("azlmbr.legacy.general")
+        general.create_level_no_prompt = create_level_no_prompt  # type: ignore[attr-defined]
+        legacy = types.ModuleType("azlmbr.legacy")
+        legacy.general = general  # type: ignore[attr-defined]
+        azlmbr = types.ModuleType("azlmbr")
+        azlmbr.legacy = legacy  # type: ignore[attr-defined]
+        modules = {"azlmbr": azlmbr, "azlmbr.legacy": legacy, "azlmbr.legacy.general": general}
+        out = io.StringIO()
+        with patch.dict(sys.modules, modules), redirect_stdout(out):
+            exec(script, {"__name__": "__main__"})  # noqa: S102
+        return calls, out.getvalue()
+
+    def test_passes_all_six_binding_arguments_with_the_default_template(self) -> None:
+        calls, _ = self._run(self._script({"name": "MyLevel"}), 0)
+        assert calls == [("Prefabs/Default_Level.prefab", "MyLevel", 1024, 1, 4096, False)]
+
+    def test_passes_a_caller_supplied_template(self) -> None:
+        calls, _ = self._run(
+            self._script({"name": "MyLevel", "template": "Prefabs/Empty.prefab"}), 0
+        )
+        assert calls[0][:2] == ("Prefabs/Empty.prefab", "MyLevel")
+
+    def test_empty_template_means_a_bare_level(self) -> None:
+        calls, _ = self._run(self._script({"name": "MyLevel", "template": ""}), 0)
+        assert calls[0][:2] == ("", "MyLevel")
+
+    def test_zero_is_success(self) -> None:
+        _, out = self._run(self._script({"name": "MyLevel"}), 0)
+        assert out.strip() == "Created and opened level: MyLevel"
+
+    @pytest.mark.parametrize(
+        ("code", "reason"),
+        [
+            (1, "already exists"),
+            (2, "could not be created"),
+            (3, "too long"),
+            (7, "engine returned code 7"),
+        ],
+    )
+    def test_nonzero_result_codes_are_errors(self, code: int, reason: str) -> None:
+        _, out = self._run(self._script({"name": "MyLevel"}), code)
+        assert out.startswith("ERROR: could not create level 'MyLevel'")
+        assert reason in out
+        assert "Created" not in out
+
+    def test_none_result_is_an_error(self) -> None:
+        # The bindings return None, with only a warning in the editor log, when the
+        # call does not match the reflected signature.
+        _, out = self._run(self._script({"name": "MyLevel"}), None)
+        assert out.startswith("ERROR: could not create level 'MyLevel'")
+        assert "Created" not in out
+
 
 class TestListLevels:
     def test_lists_levels_from_project_path(self, tmp_path: Path) -> None:
